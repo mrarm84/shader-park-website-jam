@@ -239,7 +239,7 @@ const shaderSettings = {
 
 // Bokeh effect controller (same as the HTML example)
 const effectController = {
-    enabled: true,
+    enabled: false,
     jsDepthCalculation: false, // Disable auto depth calculation - use manual focalDepth instead
     shaderFocus: false,
 
@@ -255,7 +255,7 @@ const effectController = {
     threshold: 0.5,
     gain: 2.0,
     bias: 0.5,
-    fringe: 0.7,
+    fringe: 10,
 
     focalLength: 35,
     noise: true,
@@ -307,7 +307,7 @@ function setupBokehGUI() {
     gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
     gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
     gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
-    gui.add(effectController, 'fringe', 0, 20, 0.001).onChange(matChanger);
+    gui.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
 
     gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
 
@@ -854,7 +854,7 @@ function randomizeBokehParameters() {
     effectController.threshold = Math.random() * 0.5 + 0.25; // 0.25-0.75
     effectController.gain = Math.random() * 95 + 5; // 5-100
     effectController.bias = Math.random() * 2.5 + 0.25; // 0.25-2.75
-    effectController.fringe = Math.random() * 19.75 + 0.25; // 0.25-6.75
+    effectController.fringe = Math.random() * 29.75 + 0.25; // 0.25-6.75
     effectController.focalLength = Math.random() * 60 + 10; // 10-70
 
     // Randomly enable/disable some effects
