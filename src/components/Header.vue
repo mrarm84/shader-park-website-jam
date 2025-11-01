@@ -1,7 +1,7 @@
 <template>
     <div>
         <div class="nav-spacer" v-if="!embedded" ></div>
-        <div v-if="!embedded" class="nav-bar" @click.stop="">
+        <div v-if="!embedded" class="nav-bar" >
             <div class="nav-left">
                 <router-link to="/"><h2 v-if="!isMobile" class="logo-text">SP</h2></router-link>
                 <!-- <input v-if="isMobile" type="text" class="search w-input" maxlength="256" name="search" data-name="search" placeholder="Search..." id="search"> -->

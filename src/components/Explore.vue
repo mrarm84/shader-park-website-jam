@@ -1,7 +1,7 @@
 <template>
 <div class="container">
 		<!-- <router-link to="/featured" class="link">
-			<h1 v-show="!loading">Featured Sculptures 
+			<h1 v-show="!loading">Featured Sculptures
 				<span v-show="!loading && $route.name !== 'featured'">›</span>
 			</h1>
 		</router-link> -->
@@ -10,7 +10,7 @@
 		<h1 v-show="!loading && $route.name !== 'featured'">New Sculptures</h1>
 		<sculpture-feed :sculptures="sculptures" v-if="sculptures && $route.name !== 'featured'"></sculpture-feed>
 </div>
-  
+
 </template>
 
 <script>
@@ -52,7 +52,7 @@ export default {
 	},
 	methods: {
 		finishedLoading: function() {
-				this.$store.commit('sculpturesLoaded', true);    
+				this.$store.commit('sculpturesLoaded', true);
 				this.$store.commit('joinRoom', this.roomName);
 				this.loading = false;
 		}

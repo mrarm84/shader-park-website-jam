@@ -32,7 +32,6 @@ import App from './App.vue';
 import {dbConfig} from './dbConfig.js';
 import {routes} from './router/routes';
 import {store} from './store/store';
-import {parseNumber} from "vue-js-modal/src/parser";
 
 
 window.anime = anime;
@@ -89,9 +88,6 @@ let selectedSculptureOpacity = {opacity: 0.0};
 let firstTimeAtRoute = true;
 let mediaCap = null;
 let isCapturing = false;
-let audioEnabled = false;
-
-
 
 // Gamepad button press tracking (to prevent repeated actions)
 window.gamepadButtonBPressed = false;
@@ -101,8 +97,6 @@ window.gamepadButtonSharePressed = false;
 window.gamepadButtonStartPressed = false;
 window.gamepadButtonL3Pressed = false;
 window.gamepadButtonR3Pressed = false;
-window.gamepadButtonLeftBumperPressed = false;
-window.gamepadButtonRightBumperPressed = false;
 
 router.beforeEach((to, from, next) => {
 	const currentUser = firebase.auth().currentUser;
@@ -243,15 +237,15 @@ const shaderSettings = {
 
 // Bokeh effect controller (same as the HTML example)
 const effectController = {
-    enabled: false,
-    jsDepthCalculation: false, // Disable auto depth calculation - use manual focalDepth instead
+    enabled: true,
+    jsDepthCalculation: true,
     shaderFocus: false,
 
     fstop: 2.2,
     maxblur: 1.0,
 
     showFocus: false,
-    focalDepth: 10.0, // Increased default focal depth for better visibility
+    focalDepth: 2.8,
     manualdof: false,
     vignetting: false,
     depthblur: false,
@@ -259,7 +253,7 @@ const effectController = {
     threshold: 0.5,
     gain: 2.0,
     bias: 0.5,
-    fringe: 10,
+    fringe: 0.7,
 
     focalLength: 35,
     noise: true,
@@ -270,12 +264,6 @@ const effectController = {
 
 // Make params globally accessible for dynamic tweaking
 window.rgbShiftParams = params;
-
-function enableAudio() {
-    audioEnabled = true;
-    // start audio context, analyser, etc.
-}
-
 
 // Setup GUI controls for bokeh effect
 function setupBokehGUI() {
@@ -317,7 +305,7 @@ function setupBokehGUI() {
     gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
     gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
     gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
-    gui.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
+    gui.add(effectController, 'fringe', 0, 5, 0.001).onChange(matChanger);
 
     gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
 
@@ -342,183 +330,6 @@ let tweeningSculpturesOpacity = true;
 let fogDistance = 200.0;
 window.fogDistance = fogDistance;
 
-// Audio reactivity state
-let audioContext = null;
-let analyser = null;
-let microphone = null;
-let dataArray = null;
-let audioLevel = 0.0;
-let audioInitialized = false;
-let audioPhase = 0.0;
-let audioAttack = 0.35; // faster attack
-let audioDecay = 0.08;  // slower decay
-window.audioModulationEnabled = false; // toggled via DS PS/Home button (16)
-window.audioLevel = 0.0; // expose for shaders
-
-function createAudioUI() {
-    // Tiny preset button (top-left)
-    const btn = document.createElement('button');
-    btn.textContent = '🎵';
-    btn.title = 'Enable Audio Reactivity';
-    btn.style.position = 'fixed';
-    btn.style.top = '8px';
-    btn.style.left = '8px';
-    btn.style.width = '24px';
-    btn.style.height = '24px';
-    btn.style.fontSize = '14px';
-    btn.style.lineHeight = '24px';
-    btn.style.padding = '0';
-    btn.style.border = '1px solid #ddd';
-    btn.style.borderRadius = '6px';
-    btn.style.background = '#fff';
-    btn.style.cursor = 'pointer';
-    btn.style.zIndex = '10010';
-    btn.addEventListener('click', () => showAudioOverlay());
-    document.body.appendChild(btn);
-
-    // 🔊 Volume Indicator
-    const indicator = document.createElement('div');
-    Object.assign(indicator.style, {
-        position: 'fixed',
-        top: '8px',
-        left: '38px', // right of the button
-        width: '6px',
-        height: '24px',
-        background: '#ccc',
-        borderRadius: '3px',
-        zIndex: '10010',
-        transition: 'height 0.1s ease, background 0.1s ease'
-    });
-    document.body.appendChild(indicator);
-
-    // Store reference globally or in a closure
-    window.audioVolumeIndicator = indicator;
-
-
-}
-function updateAudioIndicator(level) {
-    const indicator = window.audioVolumeIndicator;
-    if (!indicator) return;
-
-    const height = Math.min(24, Math.max(2, level * 24)); // scale to 2–24px
-    indicator.style.height = `${height}px`;
-    indicator.style.background = `rgb(${Math.floor(level * 255)}, 100, 150)`; // dynamic color
-}
-
-function showAudioOverlay() {
-    if (audioInitialized) return;
-    const overlay = document.createElement('div');
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.background = 'rgba(0,0,0,0.6)';
-    overlay.style.display = 'flex';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.zIndex = '10009';
-
-    const panel = document.createElement('div');
-    panel.style.background = '#fff';
-    panel.style.borderRadius = '10px';
-    panel.style.padding = '16px 18px';
-    panel.style.minWidth = '260px';
-    panel.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
-    panel.innerHTML = '<div style="font-weight:600;margin-bottom:8px;">Enable Audio?</div><div style="font-size:13px;color:#555;margin-bottom:12px;">We\'ll use your mic for audio-reactive modulation.</div>';
-
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.gap = '8px';
-    row.style.justifyContent = 'flex-end';
-
-    const cancel = document.createElement('button');
-    cancel.textContent = 'Cancel';
-    cancel.style.padding = '6px 10px';
-    cancel.style.border = '1px solid #ddd';
-    cancel.style.borderRadius = '6px';
-    cancel.style.background = '#f7f7f7';
-    cancel.addEventListener('click', () => document.body.removeChild(overlay));
-
-    const enable = document.createElement('button');
-    enable.textContent = 'Enable';
-    enable.style.padding = '6px 10px';
-    enable.style.border = '1px solid #2e7d32';
-    enable.style.borderRadius = '6px';
-    enable.style.background = '#43a047';
-    enable.style.color = '#fff';
-    enable.addEventListener('click', async () => {
-        try {
-            await initAudio();
-            document.body.removeChild(overlay);
-        } catch (e) {
-            console.error('Audio init failed:', e);
-            alert('Microphone access denied.');
-        }
-    });
-
-    row.appendChild(cancel);
-    row.appendChild(enable);
-    panel.appendChild(row);
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-}
-async function initAudio() {
-    if (audioInitialized) return;
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    microphone = audioContext.createMediaStreamSource(stream);
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.8;
-    dataArray = new Uint8Array(analyser.frequencyBinCount);
-    microphone.connect(analyser);
-    audioInitialized = true;
-
-    // Start volume indicator loop
-    function audioLoop() {
-        analyser.getByteFrequencyData(dataArray);
-        const sum = dataArray.reduce((a, b) => a + b, 0);
-        const level = sum / dataArray.length / 255; // normalize to 0.0–1.0
-
-        updateAudioIndicator(level); // 🔊 update visual
-        // 🔁 Pass to Shader Park
-
-
-        requestAnimationFrame(audioLoop);
-
-    }
-
-    audioLoop();
-}
-
-
-function updateAudioLevel() {
-    if (!audioInitialized || !analyser) return;
-    analyser.getByteFrequencyData(dataArray);
-    let sumSquares = 0;
-    for (let i = 0; i < dataArray.length; i++) {
-        const v = dataArray[i] / 255; // 0..1
-        sumSquares += v * v;
-    }
-    const rms = Math.sqrt(sumSquares / dataArray.length); // 0..1
-    // normalize + envelope (attack/decay)
-    const target = Math.min(1, rms);
-    if (target > audioLevel) {
-        audioLevel = audioLevel + (target - audioLevel) * audioAttack;
-    } else {
-        audioLevel = audioLevel + (target - audioLevel) * audioDecay;
-    }
-    window.audioLevel = audioLevel;
-}
-
-function getAudioModulation(multiplier = 0.5, useSin = true) {
-    if (!window.audioModulationEnabled || !audioInitialized) return 1.0;
-    const osc = useSin ? Math.sin(audioPhase) : Math.cos(audioPhase);
-    return 1.0 + (osc * audioLevel * multiplier);
-}
-
 
 function init() {
     // handleGamepadInput()
@@ -528,7 +339,7 @@ function init() {
 	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
-	renderer.setClearColor( 0xffffff, 1 );
+	renderer.setClearColor( 0x000000, 0 );
 	canvasContainer.appendChild(renderer.domElement);
 
 	// Setup post-processing composer
@@ -538,19 +349,6 @@ function init() {
 
 	// Setup bokeh depth shader material
 	const depthShader = BokehDepthShader;
-    // depthShader.fragmentShader = /* glsl */`
-    //
-	// 	uniform float mNear;
-	// 	uniform float mFar;
-    //
-	// 	varying float vViewZDepth;
-    //
-	// 	void main() {
-    //
-	// 		float color = 1.0 - smoothstep( mNear, mFar, vViewZDepth );
-	// 		gl_FragColor = vec4( vec3( color ), texture2D(tDiffuse, vUv).a );
-    //
-	// 	}`;
 	materialDepth = new ShaderMaterial({
 		uniforms: depthShader.uniforms,
 		vertexShader: depthShader.vertexShader,
@@ -575,13 +373,11 @@ function init() {
 		}
 	});
 
-
 	// Add RGB Shift effect
 	rgbShiftPass = new ShaderPass(RGBShiftShader);
 	rgbShiftPass.uniforms.amount.value = params.rsy; // tweak strength
 	rgbShiftPass.uniforms.angle.value = params.rsx; // tweak strength
 	rgbShiftPass.enabled = true;
-	bokehPass.renderToScreen = true;
 
 	// Initialize bokeh render targets
 	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
@@ -595,7 +391,7 @@ function init() {
 	composer.addPass(bokehPass);
 
 	// Setup GUI controls for bokeh effect
-	setupBokehGUI();
+	// setupBokehGUI();
 
 	canvas = document.querySelector('canvas');
 	canvas.setAttribute('tabindex', '0');
@@ -613,7 +409,7 @@ function init() {
 	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
 	controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true; // Restore damping for smooth mouse controls
-	controls.enablePan = true; // Enable right-click panning to move objects/camera
+	controls.enablePan = false;
 	controls.dampingFactor = 0.25;
 	controls.zoomSpeed = 0.5;
 	controls.rotateSpeed = 0.5;
@@ -637,11 +433,7 @@ function init() {
 
 	scene.add(hemisphereLight);
     render();
-
-	// Audio UI (small button top-left)
-	createAudioUI();
 }
-
 window.addEventListener("gamepadconnected", (e) => {
 	console.log("Gamepad connected:", e.gamepad);
 });
@@ -762,8 +554,8 @@ function handleGamepadInput() {
             // Left stick: rotate around Y axis + zoom in/out
             if (Math.abs(window.gamepadState.leftStickX) > 0.01 || Math.abs(window.gamepadState.leftStickY) > 0.01) {
                 // Left/right movement (leftStickX) - rotate around Y axis (yaw)
-            if (Math.abs(window.gamepadState.leftStickX) > 0.01) {
-                    const rotationAmount = window.gamepadState.leftStickX * rotateSpeed * 0.02 * getAudioModulation();
+                if (Math.abs(window.gamepadState.leftStickX) > 0.01) {
+                    const rotationAmount = window.gamepadState.leftStickX * rotateSpeed * 0.02;
                     if (controls.enabled) {
                         controls.rotateLeft(rotationAmount);
                     } else if (mapControls.enabled) {
@@ -773,8 +565,7 @@ function handleGamepadInput() {
 
                 // Up/down movement (leftStickY) - zoom in/out
                 if (Math.abs(window.gamepadState.leftStickY) > 0.01) {
-                    const amount = Math.abs(window.gamepadState.leftStickY) * 0.02 * getAudioModulation();
-                    const zoomFactor = 1 + amount;
+                    const zoomFactor = 1 + Math.abs(window.gamepadState.leftStickY) * 0.02;
                     if (window.gamepadState.leftStickY > 0) {
                         // Down on stick = zoom out (away from object)
                         if (controls.enabled) {
@@ -803,9 +594,8 @@ function handleGamepadInput() {
 
                 const right = new Vector3(-forward.z, 0, forward.x);
 
-                const moveMod = getAudioModulation();
-                camera.position.addScaledVector(right, -window.gamepadState.rightStickX * moveSpeed * moveMod);
-                camera.position.addScaledVector(forward, window.gamepadState.rightStickY * moveSpeed * moveMod);
+                camera.position.addScaledVector(right, -window.gamepadState.rightStickX * moveSpeed);
+                camera.position.addScaledVector(forward, window.gamepadState.rightStickY * moveSpeed);
             }
 
             // Keep old virtual cursor code for compatibility (can be removed if not needed)
@@ -863,14 +653,14 @@ function handleGamepadInput() {
         // Visual feedback - temporarily change renderer clear color when gamepad is active
         if (Math.abs(window.gamepadState.leftStickX) > 0.1 || Math.abs(window.gamepadState.leftStickY) > 0.1 ||
             Math.abs(window.gamepadState.rightStickX) > 0.1 || Math.abs(window.gamepadState.rightStickY) > 0.1) {
-            renderer.setClearColor(0xffffff, 1); // Green tint when moving
+            renderer.setClearColor(0x00ff00, 0.1); // Green tint when moving
         } else {
-            renderer.setClearColor(0xffffff, 1); // Green tint when moving
+            renderer.setClearColor(0x000000, 0); // Back to black
         }
     } else {
         console.log('No gamepad detected');
         // Reset renderer clear color when no gamepad
-            renderer.setClearColor(0xffffff, 1); // Green tint when moving
+        renderer.setClearColor(0x000000, 0);
     }
     } catch (error) {
         // Silently handle gamepad errors to prevent console spam
@@ -975,59 +765,27 @@ function handleGamepadButtonPresses(gamepad) {
     if (!window.gamepadState.buttonR3) {
         window.gamepadButtonR3Pressed = false;
     }
-
-    // Button 16 (PS/Home) - Toggle audio modulation enable/disable
-    const homePressed = gamepad.buttons[16] ? gamepad.buttons[16].pressed : false;
-    if (homePressed && !window.gamepadButtonHomePressed) {
-        window.gamepadButtonHomePressed = true;
-        window.audioModulationEnabled = !window.audioModulationEnabled;
-        console.log('🎵 Audio modulation:', window.audioModulationEnabled ? 'ENABLED' : 'DISABLED');
-    }
-    if (!homePressed) {
-        window.gamepadButtonHomePressed = false;
-    }
 }
 
 // Helper function to handle analog triggers
 function handleGamepadTriggers(gamepad) {
     if (!gamepad || !gamepad.buttons) return;
 
-    // Left Bumper (Toggle RGB Shift effect)
-    if (window.gamepadState.leftBumper && !window.gamepadButtonLeftBumperPressed) {
-        window.gamepadButtonLeftBumperPressed = true;
-        // toggleRGBShift();
-        randomizeBokehParameters();
-    }
-    if (!window.gamepadState.leftBumper) {
-        window.gamepadButtonLeftBumperPressed = false;
+    // Left Bumper (Decrease fog distance)
+    if (window.gamepadState.leftBumper) {
+        window.fogDistance = Math.max(10, window.fogDistance - 5);
+        console.log('🎮 Fog distance:', window.fogDistance);
     }
 
-    // Right Bumper (Toggle Bokeh effect and randomize parameters)
-    if (window.gamepadState.rightBumper && !window.gamepadButtonRightBumperPressed) {
-        window.gamepadButtonRightBumperPressed = true;
-        effectController.enabled = !effectController.enabled;
-        if (effectController.enabled) {
-            randomizeBokehParameters();
-            console.log('🎮 Bokeh effect ENABLED with randomized parameters');
-        } else {
-            console.log('🎮 Bokeh effect DISABLED');
-        }
-        // Update the GUI to reflect the change
-        if (gui) {
-            gui.controllers.forEach(controller => {
-                if (controller.property === 'enabled') {
-                    controller.setValue(effectController.enabled);
-                }
-            });
-        }
-    }
-    if (!window.gamepadState.rightBumper) {
-        window.gamepadButtonRightBumperPressed = false;
+    // Right Bumper (Increase fog distance)
+    if (window.gamepadState.rightBumper) {
+        window.fogDistance = Math.min(500, window.fogDistance + 5);
+        console.log('🎮 Fog distance:', window.fogDistance);
     }
 
     // Left Trigger (Zoom out - analog)
     if (window.gamepadState.leftTrigger > 0.1) {
-        const zoomFactor = 1 + window.gamepadState.leftTrigger * 0.02 * getAudioModulation();
+        const zoomFactor = 1 + window.gamepadState.leftTrigger * 0.02;
         if (controls.enabled) {
             controls.dollyOut(zoomFactor);
         } else if (mapControls.enabled) {
@@ -1037,7 +795,7 @@ function handleGamepadTriggers(gamepad) {
 
     // Right Trigger (Zoom in - analog)
     if (window.gamepadState.rightTrigger > 0.1) {
-        const zoomFactor = 1 + window.gamepadState.rightTrigger * 0.02 * getAudioModulation();
+        const zoomFactor = 1 + window.gamepadState.rightTrigger * 0.02;
         if (controls.enabled) {
             controls.dollyIn(zoomFactor);
         } else if (mapControls.enabled) {
@@ -1047,61 +805,6 @@ function handleGamepadTriggers(gamepad) {
 
     // Update RGB shift uniforms with gamepad d-pad
     updateRGBShiftWithGamepad();
-}
-
-// Randomize bokeh parameters for creative effects
-function randomizeBokehParameters() {
-    // Randomize various bokeh parameters for interesting effects
-    effectController.fstop = 0.5 + Math.random() * 20; // 0.5-20.5
-    effectController.maxblur = Math.random() * 5; // 0-5
-    effectController.focalDepth = Math.random() * 50 + 5; // 5-55
-    effectController.threshold = Math.random() * 0.5 + 0.25; // 0.25-0.75
-    effectController.gain = Math.random() * 95 + 5; // 5-100
-    effectController.bias = Math.random() * 2.5 + 0.25; // 0.25-2.75
-    effectController.fringe = Math.random() * 29.75 + 0.25; // 0.25-6.75
-    effectController.focalLength = Math.random() * 60 + 10; // 10-70
-
-    // Randomly enable/disable some effects
-    effectController.showFocus = Math.random() > 0.7;
-    effectController.manualdof = Math.random() > 0.8;
-    effectController.vignetting = Math.random() > 0.6;
-    effectController.depthblur = Math.random() > 0.7;
-    effectController.noise = Math.random() > 0.8;
-    effectController.pentagon = Math.random() > 0.9;
-
-    // Update the shader with new values
-    const matChanger = function () {
-        for (const e in effectController) {
-            if (e in bokehPass.uniforms) {
-                bokehPass.uniforms[e].value = effectController[e];
-            }
-        }
-        bokehPass.enabled = effectController.enabled;
-        bokehPass.uniforms['znear'].value = camera.near;
-        bokehPass.uniforms['zfar'].value = camera.far;
-        camera.setFocalLength(effectController.focalLength);
-    };
-
-    matChanger();
-
-    // Update GUI to reflect new values
-    if (gui) {
-        gui.controllers.forEach(controller => {
-            if (controller.property in effectController) {
-                controller.setValue(effectController[controller.property]);
-            }
-        });
-    }
-
-    console.log('🎲 Bokeh parameters randomized!');
-}
-
-// Toggle RGB shift effect
-function toggleRGBShift() {
-    if (rgbShiftPass) {
-        rgbShiftPass.enabled = !rgbShiftPass.enabled;
-        console.log('🎨 RGB Shift effect:', rgbShiftPass.enabled ? 'ENABLED' : 'DISABLED');
-    }
 }
 
 // Update RGB shift effect with gamepad d-pad controls
@@ -1133,10 +836,9 @@ function updateRGBShiftWithGamepad() {
     }
 
     if (updated) {
-        const mod = getAudioModulation(0.35, false);
-        rgbShiftPass.uniforms['amount'].value = params.rsx * mod;
+        rgbShiftPass.uniforms['amount'].value = params.rsx;
         rgbShiftPass.uniforms['angle'].value = params.rsy;
-        rgbShiftPass.uniforms.amount.value = params.rsx * mod;
+        rgbShiftPass.uniforms.amount.value = params.rsx;
     }
 }
 
@@ -1146,12 +848,6 @@ function render(time) {
 	}
 
     handleGamepadInput();
-
-    // Update audio
-    if (audioInitialized) {
-        updateAudioLevel();
-        audioPhase += 0.12 + audioLevel * 0.6;
-    }
 
 	const t = (Date.now() - startTime) % 600000.0;
 
@@ -1199,7 +895,7 @@ function render(time) {
 			// }
 			transitionAllSculpturesOpacity(1.0, 1000, cachedSelectedSculptureId);
 		} else if (sculptureHasBeenDeselected && cachedCameraPose) {
-			// camera.position.y = 2;
+			camera.position.y = 22;
 			tweenObjectToValue(camera.position.y, store.state.initialCameraPose[1], (val) => camera.position.y = val);
 			cachedCameraPose = null;
 			// if(cachedSelectedSculpturePose){
@@ -1215,25 +911,13 @@ function render(time) {
 			let fadeOpacity = calcSculptureOpacityForCameraDistance(sculpture);
 			sculpture.setOpacity(fadeOpacity);
 		}
-
-
-
-
-        let uniforms = [];
-        uniforms.push({ name: 'audioLevel', value: (audioLevel || 0.0), type: 'float' });
-        uniforms.push({ name: 'time', value: currTime, type: 'float' });
-        uniforms.push({ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
+		let uniforms = [];
+		uniforms.push({ name: 'time', value: currTime, type: 'float' },
+		{ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
 		if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
-            console.log('ooo1', sculpture.uniforms)
 			if(sculpture && sculpture.uniforms) {
 				window.uniforms = sculpture.uniforms;
 				uniforms = uniforms.concat(sculpture.uniforms);
-			}
-            console.log('ooo', sculpture.uniforms)
-            console.log('ooo2',  uniforms)
-			// If the SP sketch declares `let audioLevelz = input()`, override it with host audio
-			if (sculpture.uniforms && sculpture.uniforms.some(u => u.name === 'audioLevel')) {
-				// uniforms.push({ name: 'audioLevelz', value: window.audioLevel || 0.0, type: 'float' });
 			}
 
 		}
@@ -1242,7 +926,7 @@ function render(time) {
 
 	const objectsToRaycast = store.state.objectsToRaycast;
 	if (objectsToRaycast.length > 0) {
-		raycaster.setFromCamera(mouse, camera);
+		// raycaster.setFromCamera(mouse, camera);
 		const intersects = raycaster.intersectObjects(objectsToRaycast);
 		if(intersects.length > 0) {
 			const firstIntersect = intersects[0].object;
@@ -1250,8 +934,7 @@ function render(time) {
 			const frontSideIntersection = raycaster.intersectObjects(objectsToRaycast);
 			if (frontSideIntersection.length > 0) {
 				if(firstIntersect.material.uniforms) {
-					firstIntersect.material.uniforms['mouse'].value = frontSideIntersection[0].point.sub(firstIntersect.position);
-					// firstIntersect.material.uniforms['audioLevel'].value = 11.0;
+					// firstIntersect.material.uniforms['mouse'].value = frontSideIntersection[0].point.sub(firstIntersect.position);
 				}
 			} else {
 				if(firstIntersect.material.uniforms) {
@@ -1429,8 +1112,8 @@ function keyPress(down, e) {
 function onMouseMove(event) {
 
 	if(canvasContainer) {
-		mouse.x = ((event.clientX - canvasContainer.offsetLeft)  / canvasContainer.clientWidth) * 2 - 1;
-		mouse.y = -((event.clientY - canvasContainer.offsetTop) / canvasContainer.clientHeight ) * 2 + 1;
+		// mouse.x = ((event.clientX - canvasContainer.offsetLeft)  / canvasContainer.clientWidth) * 2 - 1;
+		// mouse.y = -((event.clientY - canvasContainer.offsetTop) / canvasContainer.clientHeight ) * 2 + 1;
 	}
 }
 
@@ -1442,9 +1125,7 @@ function onPointerMove(event) {
 	const x = event.clientX - rect.left;
 	const y = event.clientY - rect.top;
 
-	if (bokehPass.uniforms['focusCoords']) {
-		bokehPass.uniforms['focusCoords'].value.set(x / canvasContainer.clientWidth, 1 - (y / canvasContainer.clientHeight));
-	}
+	// bokehPass.uniforms['focusCoords'].value.set(x / canvasContainer.clientWidth, 1 - (y / canvasContainer.clientHeight));
 }
 
 // Utility functions for depth calculation
@@ -1481,9 +1162,9 @@ function onMouseUp(event) {
 		mouseDownTime = Date.now() - mouseDownTime;
 		if(mouseDownTime < 400) {
 			if(router.currentRoute.name === 'examples' || router.currentRoute.name === 'gallery' ) {
-				store.state.selectedObject = store.state.intersectedObject;
-				selectedSculptureOpacity.opacity = 1.0;
-				canvas.style.cursor = 'auto';
+				// store.state.selectedObject = store.state.intersectedObject;
+				// selectedSculptureOpacity.opacity = 1.0;
+				// canvas.style.cursor = 'auto';
 			}
 
 
@@ -1497,30 +1178,30 @@ function onMouseUp(event) {
 function tweenCameraToSculpturePosition(endTargetPos, duration=1000) {
 	let camTarget;
 	if (controls.enabled) {
-		camTarget = new Vector3().copy(controls.target);
-		mapControls.target = new Vector3().copy(controls.target);
+		// camTarget = new Vector3().copy(controls.target);
+		// mapControls.target = new Vector3().copy(controls.target);
 	} else {
-		camTarget = new Vector3().copy(mapControls.target);
-		controls.target = new Vector3().copy(mapControls.target);
+		// camTarget = new Vector3().copy(mapControls.target);
+		// controls.target = new Vector3().copy(mapControls.target);
 	}
+
+    console.log(camTarget);
 	let tweenControlsTarget = new TWEEN.Tween(camTarget)
 		.to(endTargetPos, duration)
-		.easing(TWEEN.Easing.Quadratic.InOut)
 		.onUpdate(function () {
-			controls.target.set(camTarget.x, camTarget.y, camTarget.z);
-			mapControls.target.set(camTarget.x, camTarget.y, camTarget.z);
+			// controls.target.set(camTarget.x, camTarget.y, camTarget.z);
+			// mapControls.target.set(camTarget.x, camTarget.y, camTarget.z);
 		});
 	let camPos = new Vector3().copy(camera.position);
 	let endCamPos = new Vector3().copy(endTargetPos);
 	endCamPos.z += 2;
 	let tweenCamera = new TWEEN.Tween(camPos)
 		.to(endCamPos, duration)
-		.easing(TWEEN.Easing.Quadratic.InOut)
 		.onUpdate(function () {
 			camera.position.set(camPos.x, camPos.y, camPos.z);
 		});
-	tweenCamera.start();
-	tweenControlsTarget.start();
+	// tweenCamera.start();
+	// tweenControlsTarget.start();
 }
 
 function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
@@ -1534,7 +1215,6 @@ function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
 		}
 		let fadeSculpture = new TWEEN.Tween(selectedSculptureOpacity)
 			.to({opacity}, duration)
-			.easing(TWEEN.Easing.Quadratic.InOut)
 			.onUpdate(function() {
 				sculp.setOpacity(selectedSculptureOpacity.opacity);
 			})
@@ -1542,7 +1222,7 @@ function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
 				tweeningSculpturesOpacity = false;
 				resolve();
 			});
-		fadeSculpture.start();
+		// fadeSculpture.start();
 	});
 }
 
@@ -1551,7 +1231,7 @@ function tweenObjectToValue(obj, endValue, updateCallback, time = 1000) {
 		let currState = { state: obj };
 		let tween = new TWEEN.Tween(currState)
 			.to({ 'state': endValue }, time)
-			.easing(TWEEN.Easing.Quadratic.InOut)
+			// .easing(TWEEN.Easing.Quadratic.InOut)
 			.onUpdate(() => {
 				updateCallback(currState.state);
 			})
@@ -1567,7 +1247,6 @@ function transitionAllSculpturesOpacity(opacity, duration = 2000, excludedSculpt
 	return new Promise(function(resolve, reject) {
 		let fadeSculptures = new TWEEN.Tween(allSculpturesOpacity)
 			.to({ opacity }, duration)
-			.easing(TWEEN.Easing.Quadratic.InOut)
 			.onUpdate(function () {
 				objectsToFade.forEach(obj => {
 					let fadeOpacity = calcSculptureOpacityForCameraDistance(obj);

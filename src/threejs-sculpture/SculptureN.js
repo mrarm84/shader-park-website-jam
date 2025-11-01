@@ -21,7 +21,7 @@ export class Sculpture {
                 this.compileError = error;
                 // throw(e);
             }
-            
+
         } else {
             try {
                 this.mesh = sculptToThreeJSMesh(source, this.payload);
@@ -47,6 +47,7 @@ export class Sculpture {
         // this.mesh.add(this.pedestalEdges);
         this.selected = false;
         this.setOpacity(0.0);
+        this.setAudiolevel(0.0);
     }
 
     setMSDFTexture(texture) {
@@ -77,11 +78,15 @@ export class Sculpture {
         this.mesh.visible = value !== 0.0;
         this.pedestal.material.opacity = this.opacity;
     }
+    setAudiolevel(value) {
+        this.audiolevel = value;
+    }
 
     refreshMaterial(newSource) {
         if (newSource) {
             this.source = newSource;
         }
+        console.log('refreshMaterial this.IsGLSL: ' + this.IsGLSL)
         if (this.IsGLSL) {
             try {
                 this.mesh.material = glslToThreeJSMaterial(this.source, this.payload);
@@ -89,13 +94,13 @@ export class Sculpture {
                 console.error(e);
                 throw(e)
             }
-            
+
         } else {
             try {
                 this.mesh.material = sculptToThreeJSMaterial(this.source, this.payload);
             } catch(e) {
                 throw(e);
-                
+
             }
             this.uniforms = this.mesh.material.uniformDescriptions;
             this.uniforms = this.uniforms.filter(uniform => !(uniform.name in this.uniformsToExclude))
@@ -104,10 +109,12 @@ export class Sculpture {
 
     update(uniforms) {
         this.mesh.material.uniforms['opacity'].value = this.opacity;
-        this.mesh.material.uniforms['msdf'].value = this.payload.msdfTexture;
+         this.mesh.material.uniforms['msdf'].value = this.payload.msdfTexture;
         uniforms.forEach(uniform => {
-            if(uniform && uniform.name) {
+            if(this.mesh.material.uniforms[uniform.name] && uniform && uniform.name && uniform.value) {
                 this.mesh.material.uniforms[uniform.name].value = uniform.value;
+            } else {
+                console.log('ten uniform jest zjebany:', uniform.name, uniform.value, this.mesh.material.uniforms);
             }
         });
     }

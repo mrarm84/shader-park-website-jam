@@ -67,7 +67,7 @@ export default {
             fork : this.sculpData.fork || null, //if a fork set to id
             featured : this.sculpData.featured || false,
             visibility : this.sculpData.visibility || 'public', //draft, public, private
-            license : this.sculpData.license || null, 
+            license : this.sculpData.license || null,
             shaderSource: this.sculpData.shaderSource || ((this.sculpData.type && this.sculpData.type === 'glsl')? defaultFragSourceGLSL: 'sphere(0.5);'),
             type: this.sculpData.type || 'js',
             saved : this.sculpData.shaderSource? true: false,
@@ -88,7 +88,7 @@ export default {
                 this.$store.commit('setSculptureError', this.sculpture.compileError);
             }, 300);
         }
-        
+
         if(this.sculpPosition) {
             this.setPose(this.sculpPosition);
         }
@@ -115,7 +115,7 @@ export default {
                 } catch (e) {
                     this.$store.commit('setSculptureError', e);
                 }
-                
+
             }
         },
         selectedObject: function (obj) {

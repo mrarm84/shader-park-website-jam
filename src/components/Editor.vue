@@ -31,6 +31,15 @@
                     <span class="sp-icon">🎵</span>
                 </button>
             </div>
+          <select v-model="selectedSculptureId" @change="loadSculptureFromDB">
+            <option value="">-- Select a sculpture --</option>
+            <option v-for="sculpture in sculptures" :key="sculpture.id" :value="sculpture.id">
+              {{ sculpture.title && sculpture.title.length > 55
+                ? sculpture.title.slice(0, 55) + '...'
+                : sculpture.title || 'Untitled Sculpture' }}
+            </option>
+          </select>
+
 
             <button @click.stop="close" class="close centerY editor-button"></button>
             <button @click.stop="save" class="save centerY editor-button">{{saveText}}</button>
@@ -99,6 +108,8 @@ export default {
     },
     data () {
         return {
+            sculptures: [],
+            selectedSculptureId: '',
             cm: null,
             code: '',
             cmOptions: {
@@ -140,8 +151,18 @@ export default {
     },
     mounted() {
         // document.addEventListener('keydown', this.keypress.bind(null, true));
+
+      this.$store.dispatch('fetchAllSculptures').then(sculptures => {
+        if (sculptures) {
+          sculptures.reverse();
+          this.sculptures = sculptures;
+        }
+      });
+
     },
-    computed : {
+
+
+  computed : {
         sculptureError() {
             return this.$store.getters.getSculptureError;
         },
@@ -199,6 +220,9 @@ export default {
         },
         isEmbeded() {
             return this.$store.state.embedded;
+        },
+        allSculptures() {
+            return this.$store.state.currentSculptures;
         }
     },
     watch : {
@@ -287,8 +311,45 @@ export default {
                     alert(`Failed to load ${filename}.sp: ${error.message}`);
                 });
         },
+      loadSculptureFromDB(event) {
+        const sculptureId = event.target.value;
+        if (!sculptureId) return;
 
-        showHideConsole() {
+        // Fetch sculpture from Firebase via Vuex
+        this.$store.dispatch('fetchSculpture', { id: sculptureId }).then(sculpture => {
+          if (!sculpture) {
+            console.error('Sculpture not found:', sculptureId);
+            alert('Sculpture not found.');
+            return;
+          }
+
+          if (!sculpture.shaderSource) {
+            console.error('Sculpture has no shader source:', sculptureId);
+            alert('This sculpture has no shader code to load.');
+            return;
+          }
+
+          // Update the code in the editor
+          this.code = sculpture.shaderSource;
+
+          // Update the sculpture source if one is selected
+          if (this.selectedSculpture) {
+            this.selectedSculpture.shaderSource = sculpture.shaderSource;
+            this.selectedSculpture.saved = false;
+            this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
+          }
+
+          console.log(`Loaded sculpture: "${sculpture.title}" by ${sculpture.username}`);
+
+          // Reset the select to the placeholder
+          event.target.value = '';
+        }).catch(error => {
+          console.error('Error fetching sculpture:', error);
+          alert(`Failed to load sculpture: ${error.message}`);
+        });
+      },
+
+      showHideConsole() {
             let cm = this.$refs.myCm.$el;
             let consoleContainer = this.$refs.consoleContainer;
             let showHideConsole = this.$refs.showHideConsole;
@@ -608,6 +669,39 @@ export default {
     font-weight: bold;
     color: #666;
     line-height: 1;
+}
+
+.db-sculptures-selector {
+    float: right;
+    margin-left: 10px;
+  min-width: 140px;
+  max-width: 160px;
+
+  margin-right: 10px;
+}
+
+.sculpture-select {
+    height: 32px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+    color: #333;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 140px;
+    max-width: 160px;
+
+    &:hover {
+        border-color: #ccc;
+        background: #f0f0f0;
+    }
+
+    &:focus {
+        outline: none;
+        border-color: #4CAF50;
+        box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+    }
 }
 
 .control-button {
