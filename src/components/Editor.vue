@@ -9,9 +9,29 @@
                 @click.stop="()=>{}" 
                 v-bind:style="titleInput"
                 classs="editor-input centerY"  v-model="sculptureTitle" placeholder="title">
-            <span v-if="authorUsername !=='admin' && authorUsername" class="username centerY">by 
+            <span v-if="authorUsername !=='admin' && authorUsername" class="username centerY">by
                 <router-link  :to="userProfileRoute" tag="a">{{authorUsername}}</router-link>
             </span>
+
+            <!-- SP File Loader Icons -->
+            <div class="sp-file-loaders">
+                <button @click.stop="loadSPFile('sphere')" class="sp-loader-btn centerY" title="Load Sphere Example">
+                    <span class="sp-icon">○</span>
+                </button>
+                <button @click.stop="loadSPFile('cube')" class="sp-loader-btn centerY" title="Load Cube Example">
+                    <span class="sp-icon">□</span>
+                </button>
+                <button @click.stop="loadSPFile('torus')" class="sp-loader-btn centerY" title="Load Torus Example">
+                    <span class="sp-icon">⭕</span>
+                </button>
+                <button @click.stop="loadSPFile('terrain')" class="sp-loader-btn centerY" title="Load Terrain Example">
+                    <span class="sp-icon">▲</span>
+                </button>
+                <button @click.stop="loadSPFile('audio-reactive')" class="sp-loader-btn centerY" title="Load Audio Reactive Example">
+                    <span class="sp-icon">🎵</span>
+                </button>
+            </div>
+
             <button @click.stop="close" class="close centerY editor-button"></button>
             <button @click.stop="save" class="save centerY editor-button">{{saveText}}</button>
             
@@ -243,6 +263,31 @@ export default {
         }
     },
     methods: {
+        loadSPFile(filename) {
+            fetch(`/sp-examples/${filename}.sp`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.text();
+                })
+                .then(spCode => {
+                    // Update the code in the editor
+                    this.code = spCode;
+                    // Update the sculpture source
+                    if (this.selectedSculpture) {
+                        this.selectedSculpture.shaderSource = spCode;
+                        this.selectedSculpture.saved = false;
+                        this.$store.commit('setUnsavedChanges', {[this.selectedSculpture.id] : false});
+                    }
+                    console.log(`Loaded SP file: ${filename}.sp`);
+                })
+                .catch(error => {
+                    console.error('Error loading SP file:', error);
+                    alert(`Failed to load ${filename}.sp: ${error.message}`);
+                });
+        },
+
         showHideConsole() {
             let cm = this.$refs.myCm.$el;
             let consoleContainer = this.$refs.consoleContainer;
@@ -522,6 +567,47 @@ export default {
 
 .save {
     margin-left: 5px;
+}
+
+.sp-file-loaders {
+    float: right;
+    margin-left: 10px;
+    margin-right: 10px;
+    display: flex;
+    gap: 5px;
+}
+
+.sp-loader-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    background: #f9f9f9;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 200ms ease;
+    font-size: 16px;
+    padding: 0;
+
+    &:hover {
+        background: #e9e9e9;
+        border-color: #ccc;
+        transform: scale(1.05);
+    }
+
+    &:active {
+        background: #ddd;
+        transform: scale(0.95);
+    }
+}
+
+.sp-icon {
+    font-size: 18px;
+    font-weight: bold;
+    color: #666;
+    line-height: 1;
 }
 
 .control-button {

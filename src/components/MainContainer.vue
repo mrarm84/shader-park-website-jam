@@ -56,7 +56,7 @@ export default {
             if(canvas && canvas.clientWidth) {
                 this.$store.commit('setCanvasSize', {width: canvas.clientWidth, height: canvas.clientHeight});
             }
-            
+
         },
         selectedSculpture(isSelected) {
             this.showHandel = isSelected != null;
@@ -72,8 +72,8 @@ export default {
             let handel = this.$refs.handel;
             handel.addEventListener('mousedown', this.mouseDown);
             let appEl =  document.getElementById('app');
-            window.addEventListener('mousemove', this.mouseMove);
-            window.addEventListener('mouseup', this.mouseDrag);
+            // window.addEventListener('mousemove', this.mouseMove);
+            // window.addEventListener('mouseup', this.mouseDrag);
             this.mounted = true;
 		})
     },

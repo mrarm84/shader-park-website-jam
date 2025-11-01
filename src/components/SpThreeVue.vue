@@ -70,7 +70,7 @@ export default {
         //         this.resize();
         //     }
         // },
-       
+
     },
     created() {
         // this.throttleFavorite = throttle(this.favorite, 850);
@@ -123,7 +123,7 @@ export default {
             // if(this.sculptureParams && this.sculptureParams) {
             //     this.sculptureParams.time = this.params.time;
             // }
-            
+
             let mesh = createSculpture(this.shaderParkCode, () => this.sculptureParams );
             this.scene.add(mesh);
 
@@ -166,7 +166,7 @@ export default {
                 } else {
                     this.sculptureParams.time = 0;
                 }
-                
+
                     this.sculptureParams.click =  this.sculptureParams.click*this.clickInterpolation + this.state.click*(1.0-this.clickInterpolation);
                     if(!this.isMobile) {
                         this.sculptureParams.hover =  this.sculptureParams.hover*this.hoverInterpolation + this.state.hover*(1.0-this.hoverInterpolation);
@@ -174,12 +174,12 @@ export default {
                 if(!this.pause) {
                     this.sculptureParams.scroll =  this.sculptureParams.scroll*this.scrollInterpolation + window.pageYOffset/window.innerHeight*(1.0-this.scrollInterpolation);
                 }
-                
+
                 // this.state.currClick = this.state.currClick*.98 + this.state.click*.02;
                 if(!this.isMobile) {
                     this.controls.update();
                 }
-                
+
                 this.renderer.render( this.scene, this.camera );
             };
 
@@ -190,7 +190,7 @@ export default {
     beforeDestroy() {
         let canvas1 = this.$refs.canvas1;
         cancelAnimationFrame(this.animationId);// Stop the animation
-    
+
         // this.renderer.domElement.addEventListener('dblclick', null, false); //remove listener to render
         this.scene = null;
         this.camera = null;
@@ -214,7 +214,7 @@ export default {
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none;
-    
+
 }
 .noSelect:focus {
     outline: none !important;

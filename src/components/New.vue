@@ -1,6 +1,6 @@
 <template>
 	<div>
-		<sculpture v-if="finishedLoadingSculp" ref="sculpture" :sculpData="emptySculpture"></sculpture>			
+		<sculpture v-if="finishedLoadingSculp" ref="sculpture" :sculpData="emptySculpture"></sculpture>
 		<!-- <modal name="no-sculpture-data-found" class="modal-popup" height="auto" width="500px">
 			¯\_(ツ)_/¯ couldn't find the sculpture you were looking for.
 		</modal> -->
@@ -19,7 +19,7 @@ export default {
 	},
 	props: ['example', 'embed', 'hideEditor', 'hidePedestal', 'clickEnabled'],
 	mounted() {
-		
+
 		this.$nextTick(function () {
 			this.$store.commit('setDisplayCanvas', true);
 			this.$store.commit('setInitialCameraPose', [0, 0, 4]);
@@ -27,7 +27,7 @@ export default {
 			if(this.clickEnabled != null) {
 				this.$store.commit('setClickEnabled', this.clickEnabled === 'true');
 			}
-			
+
 			if(this.embed && this.embed === 'true') {
 				this.$store.commit('setEmbedded', true);
 				this.setSelectedSculpture();
@@ -58,11 +58,11 @@ export default {
 					this.emptySculpture.type = sculptureType;
 				}
 				this.setSelectedSculpture();
-				
+
 			}
 		});
-		
-	
+
+
 	},
 	components: {
 		sculpture: Sculpture,
@@ -76,7 +76,7 @@ export default {
 				const sculp = this.$refs.sculpture;
 				if(sculp) {
 					if(!this.hideEditor) {
-						
+
 						this.$store.state.selectedObject = sculp.sculpture.mesh;
 					}
 					if(this.hidePedestal) {
