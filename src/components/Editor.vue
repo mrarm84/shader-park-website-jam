@@ -4,9 +4,9 @@
     <div class="editor-container" :style="{minWidth: cachedWidth}">
         <v-dialog/>
         <div class="controls">
-            <input @keyup="()=>{}" 
-                @keydown.stop="() => {}" 
-                @click.stop="()=>{}" 
+            <input @keyup="()=>{}"
+                @keydown.stop="() => {}"
+                @click.stop="()=>{}"
                 v-bind:style="titleInput"
                 classs="editor-input centerY"  v-model="sculptureTitle" placeholder="title">
             <span v-if="authorUsername !=='admin' && authorUsername" class="username centerY">by
@@ -34,8 +34,8 @@
 
             <button @click.stop="close" class="close centerY editor-button"></button>
             <button @click.stop="save" class="save centerY editor-button">{{saveText}}</button>
-            
-            
+
+
             <label class="autoUpdate-label centerY" for="AutoUpdate">Auto Update</label>
             <input  class="checkbox centerY" :style="{marginLeft: '10px'}" type="checkbox" value="AutoUpdate" v-model="autoUpdate">
             <button @click.stop="play" v-if="!autoUpdate" class="play centerY editor-button"></button>
@@ -44,25 +44,25 @@
             <input class="checkbox centerY" v-if="isAdmin" type="checkbox"  value="Example" v-model="isExample">
             <label class="autoUpdate-label centerY" v-if="isAdmin" for="Featured">Featured</label>
             <input class="checkbox centerY" v-if="isAdmin" type="checkbox"  value="Featured" v-model="isFeatured">
-            
-            
+
+
 
             <button v-if="displayDelete" @click.stop="deleteSculpture" class="delete centerY editor-button">Delete</button>
             <!-- <input type="text" id="editor-shader-title" size="60"></input> -->
             <!-- <span>by</span> -->
             <!-- <input type="text" id="editor-author-name" size="30"></input> -->
         </div>
-        
+
         <!-- <div @keyup="()=>{}" @keydown.stop="()=>{removeEditorModalUI()}" @click.stop="()=>{}" ref="codeMirror" class="code-editor"> </div> -->
         <!-- <codemirror ref="myCm"
-            :value="code" 
+            :value="code"
             :options="cmOptions"
             @ready="onCmReady"
             @focus="onCmFocus"
             @input="onCmCodeChange">
         </codemirror> -->
         <codemirror ref="myCm"
-            :value="code" 
+            :value="code"
             :options="cmOptions"
             @ready="onCmReady"
             @input="onCmCodeChange" @keydown.stop="()=>{}" @click.stop="()=>{}">
@@ -73,10 +73,10 @@
                 <button  @click.stop="showHideConsole" class="editor-button centerY show-hide-console" ref=showHideConsole>^</button>
             </div>
             <div class="console-container" ref="consoleContainer">
-                
+
                 <div class="error-messages" v-html="consoleErrorMessages"></div>
                 <!-- <button  @click.stop="download" class="centerY editor-button">Download Source</button> -->
-                
+
             </div>
         </div>
     </div>
@@ -194,7 +194,7 @@ export default {
                 if(this.$store.state.selectedSculpture) {
                     this.$store.state.selectedSculpture.title = value;
                     this.titleInput.width = value.length + 1 + 'ch';
-                }   
+                }
             }
         },
         isEmbeded() {
@@ -212,12 +212,12 @@ export default {
                 } else if(this.errorMessages[lastErrorIndex] !== message) {
                     this.errorMessages.push(message);
                 }
-                
+
                 setTimeout(() => { //wait for DOM to refresh to calculate height
                     let errorConsole = document.querySelector('.console-container');
-                    errorConsole.scrollTop = errorConsole.scrollHeight;    
+                    errorConsole.scrollTop = errorConsole.scrollHeight;
                 }, 1);
-                
+
             }
         },
         cachedWidth(value) {
@@ -298,7 +298,7 @@ export default {
                     cm.classList.remove('max');
                     consoleContainer.classList.remove('max')
                     showHideConsole.classList.remove('max');
-                    
+
                 } else {
                     cm.classList.add('max');
                     consoleContainer.classList.add('max');
@@ -332,8 +332,8 @@ export default {
             this.code = newCode;
             if(this.autoUpdate) {
                 if(this.selectedSculpture){
-                    
-                    this.selectedSculpture.shaderSource = this.code; 
+
+                    this.selectedSculpture.shaderSource = this.code;
                 }
             }
         },
@@ -360,13 +360,13 @@ export default {
         },
         play() {
             if(this.selectedSculpture){
-                this.selectedSculpture.shaderSource = this.code; 
+                this.selectedSculpture.shaderSource = this.code;
             }
         },
         download() {
             let output = sculptToThreeJSShaderSource(this.code);
             let out2 = sculptToTouchDesignerShaderSource(this.code);
-            
+
             let spExport = output.geoGLSL + '\n' + output.colorGLSL;
             output['spExport'] = spExport;
             output['touchDesignerExport'] = out2.frag;
@@ -412,7 +412,7 @@ export default {
                         }
                     }]
                 })
-                
+
             }
         },
         deleteSculpture() {
@@ -444,7 +444,7 @@ export default {
             //     if(this.selectedSculpture) {
             //         this.play();
             //     }
-            	
+
             // }
         },
         removeEditorModalUI() {
@@ -490,7 +490,7 @@ export default {
     &:hover {
         color: #000;
         box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.2);
-    }        
+    }
 
 }
 
@@ -513,7 +513,7 @@ export default {
     min-height: 50px;
     position: relative;
     height: 8vh;
-    
+
     padding-left: 20px;
     padding-right: 20px;
     overflow: hidden;
@@ -532,7 +532,7 @@ export default {
         right: 0;
         pointer-events: none;
         //border-bottom: 2px solid #f5f5f5;
-        
+
         .show-hide-console {
             position: absolute;
             pointer-events: initial !important;
@@ -552,7 +552,7 @@ export default {
     }
 
     .console-container {
-        overflow: scroll;   
+        overflow: scroll;
         height: 12vh;
         padding-left: 10px;
         transition: height 300ms ease-in-out;
@@ -640,7 +640,7 @@ export default {
         filter: invert(1);
         // fill: black;
         background-color: black;
-    } 
+    }
 }
 
 .play {
@@ -688,7 +688,7 @@ label {
     overflow: scroll !important;
     // max-height: 81vh;
     // max-width: 100%;
-    // &.max{ 
+    // &.max{
     //     max-height: 48vh;
     // }
     // &.embed {
@@ -717,7 +717,7 @@ label {
 
 .vue-codemirror {
     max-height: calc(70vh - 2px);
-    &.max{ 
+    &.max{
         max-height: calc(37vh - 2px);
     }
     transition: max-height 300ms ease-in-out;

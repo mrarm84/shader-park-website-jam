@@ -341,7 +341,7 @@ function init() {
 	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
-	renderer.setClearColor( 0x000000, 0 );
+	renderer.setClearColor( 0xffffff, 1 );
 	canvasContainer.appendChild(renderer.domElement);
 
 	// Setup post-processing composer
@@ -351,6 +351,19 @@ function init() {
 
 	// Setup bokeh depth shader material
 	const depthShader = BokehDepthShader;
+    // depthShader.fragmentShader = /* glsl */`
+    //
+	// 	uniform float mNear;
+	// 	uniform float mFar;
+    //
+	// 	varying float vViewZDepth;
+    //
+	// 	void main() {
+    //
+	// 		float color = 1.0 - smoothstep( mNear, mFar, vViewZDepth );
+	// 		gl_FragColor = vec4( vec3( color ), texture2D(tDiffuse, vUv).a );
+    //
+	// 	}`;
 	materialDepth = new ShaderMaterial({
 		uniforms: depthShader.uniforms,
 		vertexShader: depthShader.vertexShader,
@@ -374,6 +387,7 @@ function init() {
 			SAMPLES: shaderSettings.samples
 		}
 	});
+
 
 	// Add RGB Shift effect
 	rgbShiftPass = new ShaderPass(RGBShiftShader);
@@ -656,14 +670,14 @@ function handleGamepadInput() {
         // Visual feedback - temporarily change renderer clear color when gamepad is active
         if (Math.abs(window.gamepadState.leftStickX) > 0.1 || Math.abs(window.gamepadState.leftStickY) > 0.1 ||
             Math.abs(window.gamepadState.rightStickX) > 0.1 || Math.abs(window.gamepadState.rightStickY) > 0.1) {
-            renderer.setClearColor(0x00ff00, 0.1); // Green tint when moving
+            renderer.setClearColor(0xffffff, 1); // Green tint when moving
         } else {
-            renderer.setClearColor(0x000000, 0); // Back to black
+            renderer.setClearColor(0xffffff, 1); // Green tint when moving
         }
     } else {
         console.log('No gamepad detected');
         // Reset renderer clear color when no gamepad
-        renderer.setClearColor(0x000000, 0);
+            renderer.setClearColor(0xffffff, 1); // Green tint when moving
     }
     } catch (error) {
         // Silently handle gamepad errors to prevent console spam
@@ -777,7 +791,8 @@ function handleGamepadTriggers(gamepad) {
     // Left Bumper (Toggle RGB Shift effect)
     if (window.gamepadState.leftBumper && !window.gamepadButtonLeftBumperPressed) {
         window.gamepadButtonLeftBumperPressed = true;
-        toggleRGBShift();
+        // toggleRGBShift();
+        randomizeBokehParameters();
     }
     if (!window.gamepadState.leftBumper) {
         window.gamepadButtonLeftBumperPressed = false;

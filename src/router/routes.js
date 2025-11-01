@@ -54,6 +54,11 @@ export const routes = [
     path: '/new',
     name: 'new',
     component: New,
+    props: (route) => ({
+      hideEditor: true,
+      hidePedestal: true,
+      clickEnabled: false
+    }),
     meta: {
       title: 'New Sculpture',
       selectedSculpture: true
