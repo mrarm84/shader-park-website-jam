@@ -988,7 +988,7 @@ function render(time) {
 			// }
 			transitionAllSculpturesOpacity(1.0, 1000, cachedSelectedSculptureId);
 		} else if (sculptureHasBeenDeselected && cachedCameraPose) {
-			camera.position.y = 22;
+			// camera.position.y = 2;
 			tweenObjectToValue(camera.position.y, store.state.initialCameraPose[1], (val) => camera.position.y = val);
 			cachedCameraPose = null;
 			// if(cachedSelectedSculpturePose){
@@ -1019,7 +1019,7 @@ function render(time) {
 
 	const objectsToRaycast = store.state.objectsToRaycast;
 	if (objectsToRaycast.length > 0) {
-		// raycaster.setFromCamera(mouse, camera);
+		raycaster.setFromCamera(mouse, camera);
 		const intersects = raycaster.intersectObjects(objectsToRaycast);
 		if(intersects.length > 0) {
 			const firstIntersect = intersects[0].object;
@@ -1027,7 +1027,7 @@ function render(time) {
 			const frontSideIntersection = raycaster.intersectObjects(objectsToRaycast);
 			if (frontSideIntersection.length > 0) {
 				if(firstIntersect.material.uniforms) {
-					// firstIntersect.material.uniforms['mouse'].value = frontSideIntersection[0].point.sub(firstIntersect.position);
+					firstIntersect.material.uniforms['mouse'].value = frontSideIntersection[0].point.sub(firstIntersect.position);
 				}
 			} else {
 				if(firstIntersect.material.uniforms) {
@@ -1257,9 +1257,9 @@ function onMouseUp(event) {
 		mouseDownTime = Date.now() - mouseDownTime;
 		if(mouseDownTime < 400) {
 			if(router.currentRoute.name === 'examples' || router.currentRoute.name === 'gallery' ) {
-				// store.state.selectedObject = store.state.intersectedObject;
-				// selectedSculptureOpacity.opacity = 1.0;
-				// canvas.style.cursor = 'auto';
+				store.state.selectedObject = store.state.intersectedObject;
+				selectedSculptureOpacity.opacity = 1.0;
+				canvas.style.cursor = 'auto';
 			}
 
 
@@ -1273,30 +1273,30 @@ function onMouseUp(event) {
 function tweenCameraToSculpturePosition(endTargetPos, duration=1000) {
 	let camTarget;
 	if (controls.enabled) {
-		// camTarget = new Vector3().copy(controls.target);
-		// mapControls.target = new Vector3().copy(controls.target);
+		camTarget = new Vector3().copy(controls.target);
+		mapControls.target = new Vector3().copy(controls.target);
 	} else {
-		// camTarget = new Vector3().copy(mapControls.target);
-		// controls.target = new Vector3().copy(mapControls.target);
+		camTarget = new Vector3().copy(mapControls.target);
+		controls.target = new Vector3().copy(mapControls.target);
 	}
-
-    console.log(camTarget);
 	let tweenControlsTarget = new TWEEN.Tween(camTarget)
 		.to(endTargetPos, duration)
+		.easing(TWEEN.Easing.Quadratic.InOut)
 		.onUpdate(function () {
-			// controls.target.set(camTarget.x, camTarget.y, camTarget.z);
-			// mapControls.target.set(camTarget.x, camTarget.y, camTarget.z);
+			controls.target.set(camTarget.x, camTarget.y, camTarget.z);
+			mapControls.target.set(camTarget.x, camTarget.y, camTarget.z);
 		});
 	let camPos = new Vector3().copy(camera.position);
 	let endCamPos = new Vector3().copy(endTargetPos);
 	endCamPos.z += 2;
 	let tweenCamera = new TWEEN.Tween(camPos)
 		.to(endCamPos, duration)
+		.easing(TWEEN.Easing.Quadratic.InOut)
 		.onUpdate(function () {
 			camera.position.set(camPos.x, camPos.y, camPos.z);
 		});
-	// tweenCamera.start();
-	// tweenControlsTarget.start();
+	tweenCamera.start();
+	tweenControlsTarget.start();
 }
 
 function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
@@ -1310,6 +1310,7 @@ function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
 		}
 		let fadeSculpture = new TWEEN.Tween(selectedSculptureOpacity)
 			.to({opacity}, duration)
+			.easing(TWEEN.Easing.Quadratic.InOut)
 			.onUpdate(function() {
 				sculp.setOpacity(selectedSculptureOpacity.opacity);
 			})
@@ -1317,7 +1318,7 @@ function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
 				tweeningSculpturesOpacity = false;
 				resolve();
 			});
-		// fadeSculpture.start();
+		fadeSculpture.start();
 	});
 }
 
@@ -1326,7 +1327,7 @@ function tweenObjectToValue(obj, endValue, updateCallback, time = 1000) {
 		let currState = { state: obj };
 		let tween = new TWEEN.Tween(currState)
 			.to({ 'state': endValue }, time)
-			// .easing(TWEEN.Easing.Quadratic.InOut)
+			.easing(TWEEN.Easing.Quadratic.InOut)
 			.onUpdate(() => {
 				updateCallback(currState.state);
 			})
@@ -1342,6 +1343,7 @@ function transitionAllSculpturesOpacity(opacity, duration = 2000, excludedSculpt
 	return new Promise(function(resolve, reject) {
 		let fadeSculptures = new TWEEN.Tween(allSculpturesOpacity)
 			.to({ opacity }, duration)
+			.easing(TWEEN.Easing.Quadratic.InOut)
 			.onUpdate(function () {
 				objectsToFade.forEach(obj => {
 					let fadeOpacity = calcSculptureOpacityForCameraDistance(obj);

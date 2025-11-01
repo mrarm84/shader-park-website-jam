@@ -14,7 +14,7 @@ export const routes = [
     meta: {
       title: 'Explore',
     }
-  },  
+  },
   {
     path: '',
     name: 'home',
@@ -40,7 +40,7 @@ export const routes = [
     meta: {
       title: 'Gallery',
     }
-  },  
+  },
   {
     path: '/new/:type',
     name: 'new',
@@ -55,7 +55,7 @@ export const routes = [
     name: 'new',
     component: New,
     props: (route) => ({
-      hideEditor: true,
+      hideEditor: false,
       hidePedestal: true,
       clickEnabled: false
     }),
@@ -139,8 +139,8 @@ export const routes = [
     meta: { title: 'About'}
   },
   {
-    path: '/404', 
-    name: '404', 
+    path: '/404',
+    name: '404',
     component: import(/* webpackChunkName: "error" */ '../components/Error404.vue')
   },
   {path: '*', redirect: '/404'}
