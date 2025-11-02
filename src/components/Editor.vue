@@ -413,10 +413,11 @@ export default {
           // Insert custom code before audioLevel input for Shader Park sketches
           let processedShaderSource = sculpture.shaderSource;
 
+          const patternglsl = /glslSDF/;
           const pattern = /^let\s+audioLevel/;
           const pattern2 = /^\/\/let\s+audioLevel/;
           if (!pattern.test(processedShaderSource) && !pattern2.test(processedShaderSource)) {
-         //   processedShaderSource = '\/\/let audioLevel = input();' + processedCode;
+           processedShaderSource = '\/\/let audioLevel = input();' + processedShaderSource;
           }
 
           this.code = processedShaderSource;
@@ -511,11 +512,14 @@ export default {
                 this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
             }
           let processedCode = newCode;
+          const patternglsl = /glslSDF/;
           const pattern = /^let\s+audioLevel/;
           const pattern2 = /^\/\/let\s+audioLevel/;
-          if (!pattern.test(newCode) && !pattern2.test(newCode)) {
-            processedCode = '\/\/let audioLevel = input();\n' + processedCode;
+          if (!patternglsl.test(processedCode) && !pattern.test(processedCode) && !pattern2.test(processedCode)) {
+            processedCode = 'let audioLevel = input(0.5);\n' + processedCode;
           }
+
+
 
             this.code = processedCode;
 
@@ -559,9 +563,10 @@ export default {
                 //
                 // }
               console.log('this.type2', this.type)
+              const patternglsl = /glslSDF/;
               const pattern = /^let\s+audioLevel/;
               const pattern2 = /^\/\/let\s+audioLevel/;
-              if (!pattern.test(newCode) && !pattern2.test(newCode)) {
+              if (!pattern.test(processedCode) && !pattern2.test(processedCode)) {
                 processedCode = '\/\/let audioLevel = input();\n' + processedCode;
               }
                 this.selectedSculpture.shaderSource = processedCode;

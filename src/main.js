@@ -231,7 +231,7 @@ firebase.auth().onAuthStateChanged(function(user) {
 // const scene = store.state.scene;
 const scene = new Scene();
 window.scene = scene;
-const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.0001, 180);
+const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 500);
 
 window.camera = camera;
 
@@ -421,7 +421,7 @@ function setupHalftoneGUI() {
     halftoneGUI.add(halftoneController, 'shaderBlendingMode', shaderBlendOptions).onChange(updateHalftoneBlending);
 
     // Add shader blending slider (controls the 'blending' uniform)
-    halftoneGUI.add(halftoneController, 'shaderBlending', 0.0, 2.0, 0.01).onChange(updateHalftoneBlending);
+    halftoneGUI.add(halftoneController, 'shaderBlending', 0.0, 1.0, 0.01).onChange(updateHalftoneBlending);
 
     // Add radius and scatter controls
     halftoneGUI.add(halftoneController, 'radius', 0.1, 20.0, 0.1).onChange(updateHalftoneBlending);
@@ -441,7 +441,7 @@ function setupHalftoneGUI() {
         halftoneController.materialBlending = MultiplyBlending;
         halftoneController.blendMode = MultiplyBlending;
         halftoneController.shaderBlending = 1.0;
-        halftoneController.shaderBlendingMode = 2;
+        halftoneController.shaderBlendingMode = 1;
         updateHalftoneBlending();
         halftoneGUI.controllers.forEach(c => c.updateDisplay());
     }}, 'Multiply+Multiply');
@@ -1812,6 +1812,7 @@ function showHelpModal() {
         alignItems: 'center', justifyContent: 'center'
     });
     const panel = document.createElement('div');
+    panel.className = 'custom-modal-panel';
     Object.assign(panel.style, {
         background: '#fff', color: '#222', padding: '16px 18px', borderRadius: '8px',
         minWidth: '280px', maxWidth: '520px', boxShadow: '0 8px 22px rgba(0,0,0,0.25)'
@@ -1862,7 +1863,7 @@ function sendCanvasClick() {
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
         const evtInit = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window };
-        // el.dispatchEvent(new PointerEvent('pointerdown', evtInit));
+        el.dispatchEvent(new PointerEvent('pointerdown', evtInit));
         el.dispatchEvent(new MouseEvent('mousedown', evtInit));
         if (el.focus) try { el.focus(); } catch(e){}
         el.dispatchEvent(new PointerEvent('pointerup', evtInit));
@@ -1877,6 +1878,7 @@ function showPalettePanel() {
         if (existing) { existing.remove(); }
         const panel = document.createElement('div');
         panel.id = 'palette-panel';
+        panel.className = 'custom-modal-panel';
         Object.assign(panel.style, {
             position: 'fixed', top: '40px', left: '8px', zIndex: '10020',
             background: '#fff', color: '#222', padding: '10px 12px', border: '1px solid #ddd',
@@ -2061,6 +2063,8 @@ function setControlsVisible(visible) {
         if (halftoneGUI) {
             halftoneGUI.domElement.style.display = visible ? '' : 'none';
         }
+        // Hide/show custom modal panels (palette, audio help, etc.)
+        document.querySelectorAll('.custom-modal-panel').forEach(el => el.style.display = visible ? '' : 'none');
         // Inputs (sliders)
         document.querySelectorAll('input[type="range"]').forEach(el => el.style.display = visible ? '' : 'none');
         // Bottom action bar
@@ -2363,7 +2367,7 @@ renderer.setClearColor(0xffffff, 1);
 	rgbShiftPass.uniforms.amount.value = params.rsy; // tweak strength
 	rgbShiftPass.uniforms.angle.value = params.rsx; // tweak strength
 	rgbShiftPass.enabled = true;
-	bokehPass.renderToScreen = true;
+	// bokehPass.renderToScreen = true; // Removed to allow proper composer chain with brightness/contrast
 
 	// Film pass (grain/scanlines), initially disabled
 	filmPass = new FilmPass(0.0, 0.0, 2048, false);
@@ -2463,7 +2467,6 @@ renderer.setClearColor(0xffffff, 1);
 	// Setup GUI controls for halftone blending
 	setupHalftoneGUI();
 
-	// Create loading text element
 
 	// Apply initial background according to bgMode
 	try { applyBackground(window.bgMode || 1); } catch(e){}
@@ -2671,12 +2674,12 @@ function handleGamepadInput() {
                 const audioAmt = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.0;
                 // wobble ensures distinctiveness across the disc
                 const wobble = Math.sin((lx * 13.37 + ly * 9.91) + audioPhase * 0.4) * 0.18 * r;
-                hue = Math.max(-1.0, Math.min(1.0, hue + wobble));
-                let sat = Math.max(0.0, Math.min(1.0, r * (0.85 + 0.25 * audioAmt)));
+                hue = Math.max(-1.0, Math.min(1.0, hue - wobble));
+                let sat = Math.max(0.0, Math.min(0.4, r * (0.25 + 0.25 * audioAmt)));
                 hueSatPass.enabled = true;
                 if (hueSatPass && hueSatPass.uniforms) {
                     hueSatPass.enabled = true;
-                    hueSatPass.uniforms['hue'].value = hue;
+                    hueSatPass.uniforms['hue'].value =-hue;
                     hueSatPass.uniforms['saturation'].value = sat;
                 }
 
@@ -2821,11 +2824,11 @@ function handleGamepadButtonPresses(gamepad) {
     // Button B/Circle (also send Enter key to the page)
     if (window.gamepadState.buttonCircle && !window.gamepadButtonBPressed) {
         window.gamepadButtonBPressed = true;
-        if (store.state.selectedSculpture) {
-            store.state.selectedSculpture = null;
-            store.state.selectedObject = null;
-            console.log('🎮 Deselected sculpture');
-        }
+        // if (store.state.selectedSculpture) {
+        //     store.state.selectedSculpture = null;
+        //     store.state.selectedObject = null;
+        //     console.log('🎮 Deselected sculpture');
+        // }
         // First, synthesize a click on the canvas to ensure focus
         try { sendCanvasClick(); } catch(e) { console.error('Canvas click synth failed', e); }
         // Then send an Enter key press to activate focused UI
