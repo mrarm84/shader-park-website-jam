@@ -1,6 +1,6 @@
 <template>
 <div>
-    <div :class="{embeded : isEmbeded, dragging: dragging}" :style="{width: currWidth}" class="action-bar">   
+    <div :class="{embeded : isEmbeded, dragging: dragging}" :style="{width: currWidth}" class="action-bar">
         <button v-if="!isMobile" class="editor-button" @click="showCodeEditor">Edit Code</button>
         <button v-if="displayActionButton" :class="{activated : favorited}" @click="throttleFavorite" class="editor-button action-button"> </button>
         <span v-if="displayActionButton">{{favoriteCount}}</span>
@@ -89,11 +89,23 @@ export default {
             this.$store.state.selectedObject = this.getCurrSculpture();
         },
         getCurrSculpture(){
-            let sculp = window.scene.children.filter(obj => obj.type === 'Mesh');
             try {
-                return sculp[0];
+                // Prefer current sculpture by id
+                const curr = this.$store.state.currSculpture;
+                if (curr && curr.id) {
+                    const match = this.$store.state.objectsToUpdate.find(o => o && o.mesh && o.mesh.name === curr.id);
+                    if (match && match.mesh) return match.mesh;
+                }
+                // Fallback: first object to update
+                if (this.$store.state.objectsToUpdate && this.$store.state.objectsToUpdate.length > 0) {
+                    return this.$store.state.objectsToUpdate[0].mesh;
+                }
+                // Last resort: any mesh in scene
+                const sculp = window.scene.children.filter(obj => obj.type === 'Mesh');
+                return sculp && sculp.length ? sculp[0] : null;
             } catch(e) {
                 console.error('No sculpture found', e)
+                return null;
             }
         },
         share() {

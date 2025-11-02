@@ -31,7 +31,7 @@
                     <span class="sp-icon">🎵</span>
                 </button>
             </div>
-          <select v-model="selectedSculptureId" @change="loadSculptureFromDB">
+          <select class="select-sculpture" v-model="selectedSculptureId" @change="loadSculptureFromDB">
             <option value="">-- Select a sculpture --</option>
             <option v-for="sculpture in sculptures" :key="sculpture.id" :value="sculpture.id">
               {{ sculpture.title && sculpture.title.length > 55
@@ -39,6 +39,7 @@
                 : sculpture.title || 'Untitled Sculpture' }}
             </option>
           </select>
+          <button @click.stop="loadRandomSculpture" class="random-sculpture editor-button centerY" style="margin-left:8px;">🎲</button>
 
 
             <button @click.stop="close" class="close centerY editor-button"></button>
@@ -159,6 +160,17 @@ export default {
         }
       });
 
+      // Try restoring last edited code on mount
+      try {
+        const initialId = this.$store.state.selectedSculpture ? this.$store.state.selectedSculpture.id : null;
+        const restored = this.getStoredCode(initialId);
+        if (restored) {
+          this.code = restored;
+          if (this.$store.state.selectedSculpture) {
+            this.$store.state.selectedSculpture.shaderSource = restored;
+          }
+        }
+      } catch(e) {}
     },
 
 
@@ -271,13 +283,14 @@ export default {
                 this.currWidth = this.cachedWidth;
                 this.isExample = obj.isExample;
                 this.isFeatured = obj.featured;
-                if(!this.initialized) {
-                    this.code = obj.shaderSource;
-                    this.initialized = true;
-                } else {
-                    this.closed = false;
-                    this.code = obj.shaderSource;
-                }
+                // Use stored code if available; otherwise sculpture source or fallback default
+                const restored = this.getStoredCode(obj.id);
+                const fallbackCode = obj.shaderSource || 'sphere(0.5);';
+                const codeToUse = restored || fallbackCode;
+                this.code = codeToUse;
+                obj.shaderSource = codeToUse;
+                this.initialized = true;
+                this.closed = false;
                 this.errorMessages = [];
                 this.cycleResizeWindows();
             } else {
@@ -287,6 +300,20 @@ export default {
         }
     },
     methods: {
+        storageKey(id) { return id ? `sp:code:${id}` : null; },
+        getStoredCode(id) {
+            try {
+                const perId = id ? localStorage.getItem(this.storageKey(id)) : null;
+                return perId || localStorage.getItem('sp:lastCode');
+            } catch(e) { return null; }
+        },
+        persistCode(code, id) {
+            try {
+                if (typeof code !== 'string') return;
+                localStorage.setItem('sp:lastCode', code);
+                if (id) localStorage.setItem(this.storageKey(id), code);
+            } catch(e) {}
+        },
         loadSPFile(filename) {
             fetch(`/sp-examples/${filename}.sp`)
                 .then(response => {
@@ -304,6 +331,9 @@ export default {
                         this.selectedSculpture.saved = false;
                         this.$store.commit('setUnsavedChanges', {[this.selectedSculpture.id] : false});
                     }
+                    // Persist
+                    const currId = this.selectedSculpture ? this.selectedSculpture.id : null;
+                    this.persistCode(spCode, currId);
                     console.log(`Loaded SP file: ${filename}.sp`);
                 })
                 .catch(error => {
@@ -339,6 +369,9 @@ export default {
             this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
           }
 
+          // Persist
+          const currId = this.selectedSculpture ? this.selectedSculpture.id : null;
+          this.persistCode(sculpture.shaderSource, currId);
           console.log(`Loaded sculpture: "${sculpture.title}" by ${sculpture.username}`);
 
           // Reset the select to the placeholder
@@ -347,6 +380,67 @@ export default {
           console.error('Error fetching sculpture:', error);
           alert(`Failed to load sculpture: ${error.message}`);
         });
+      },
+
+      loadRandomSculpture() {
+        if (!this.sculptures || this.sculptures.length === 0) return;
+        const prevCode = this.code;
+        const prevShader = this.selectedSculpture ? this.selectedSculpture.shaderSource : null;
+        const random = this.sculptures[Math.floor(Math.random() * this.sculptures.length)];
+
+        // Flash strong bokeh blur before switching
+        this.enableBokehFlash();
+
+        this.$store.dispatch('fetchSculpture', { id: random.id }).then(sculpture => {
+          if (!sculpture || !sculpture.shaderSource) throw new Error('No shader in sculpture');
+          this.code = sculpture.shaderSource;
+          if (this.selectedSculpture) {
+            this.selectedSculpture.shaderSource = sculpture.shaderSource;
+            this.selectedSculpture.saved = false;
+            this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
+          }
+        }).catch(err => {
+          console.error('Random load failed:', err);
+          // Revert to previous
+          this.code = prevCode;
+          if (this.selectedSculpture && prevShader != null) {
+            this.selectedSculpture.shaderSource = prevShader;
+          }
+        }).finally(() => {
+          // Disable the bokeh flash after change
+          this.disableBokehFlash();
+        });
+      },
+
+      enableBokehFlash() {
+        try {
+          if (window.effectController) {
+            window.effectController.enabled = true;
+            window.effectController.maxblur = 15.0;
+            window.effectController.fstop = 1.5;
+            // reflect in GUI if present
+            if (window.gui && window.gui.controllers) {
+              window.gui.controllers.forEach(c => {
+                if (c.property === 'enabled') c.setValue(window.effectController.enabled);
+                if (c.property === 'maxblur') c.setValue(window.effectController.maxblur);
+                if (c.property === 'fstop') c.setValue(window.effectController.fstop);
+              });
+            }
+          }
+        } catch (e) { /* ignore */ }
+      },
+
+      disableBokehFlash() {
+        try {
+          if (window.effectController) {
+            window.effectController.enabled = false;
+            if (window.gui && window.gui.controllers) {
+              window.gui.controllers.forEach(c => {
+                if (c.property === 'enabled') c.setValue(window.effectController.enabled);
+              });
+            }
+          }
+        } catch (e) { /* ignore */ }
       },
 
       showHideConsole() {
@@ -386,9 +480,9 @@ export default {
         },
         onCmCodeChange(newCode) {
 
-            if(newCode !== this.selectedSculpture.shaderSource){
+            if (this.selectedSculpture && newCode !== this.selectedSculpture.shaderSource) {
                 this.selectedSculpture.saved = false;
-                this.$store.commit('setUnsavedChanges', {[this.selectedSculpture.id] : false})
+                this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
             }
             this.code = newCode;
             if(this.autoUpdate) {
@@ -397,6 +491,9 @@ export default {
                     this.selectedSculpture.shaderSource = this.code;
                 }
             }
+            // Persist current code (global + per-sculpture)
+            const currId = this.selectedSculpture ? this.selectedSculpture.id : null;
+            this.persistCode(this.code, currId);
         },
         save() {
             return new Promise((resolve, reject) => {
@@ -573,7 +670,7 @@ export default {
 .controls{
     min-height: 50px;
     position: relative;
-    height: 8vh;
+    height: 12vh;
 
     padding-left: 20px;
     padding-right: 20px;
@@ -636,6 +733,7 @@ export default {
     margin-right: 10px;
     display: flex;
     gap: 5px;
+    padding-top: 16px;
 }
 
 .sp-loader-btn {
@@ -820,6 +918,12 @@ label {
 
 .CodeMirror-hints{
     z-index: 100;
+}
+
+.select-sculpture{
+  margin-top: 39px;
+  float: none;
+  display: flex;
 }
 
 </style>

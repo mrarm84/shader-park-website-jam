@@ -12,6 +12,7 @@ export class Sculpture {
         this.payload = { msdfTexture}
         this.source = source;
         this.compileError = null;
+        console.log('isGlsl', isGlsl)
         if (isGlsl) {
             try {
                 this.mesh = glslToThreeJSMesh(source, this.payload);
@@ -37,6 +38,8 @@ export class Sculpture {
         const pedestalGeom = new BoxGeometry(2, 1, 2);
         this.opacity = 0.0;
         this.stepSize = 0.8;
+        this.audioLevel = 0.0;
+        this._audioLevel = 0.0;
         const pedestalMat = new MeshBasicMaterial({ color: new Color(0.95, 0.95, 0.95), transparent: true, opacity: this.opacity });
         this.pedestal = new Mesh(pedestalGeom, pedestalMat);
         this.sepBuffer = 0.05; // Small gap between sculpture and pedestal prevents z-fighting
