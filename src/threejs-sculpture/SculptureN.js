@@ -117,7 +117,7 @@ export class Sculpture {
             if(this.mesh.material.uniforms[uniform.name] && uniform && uniform.name && uniform.value) {
                 this.mesh.material.uniforms[uniform.name].value = uniform.value;
             } else {
-                console.log('ten uniform jest zjebany:', uniform.name, uniform.value, this.mesh.material.uniforms);
+                // console.log('ten uniform jest zly i dziwny:', uniform.name, uniform.value, this.mesh.material.uniforms);
             }
         });
     }

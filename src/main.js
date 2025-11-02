@@ -6,18 +6,27 @@ import 'firebase/compat/database';
 import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
 
-import { Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide } from 'three';
+import { Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
 
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MapControls } from 'three/addons/controls/MapControls.js';
+import * as GeometryUtils from 'three/addons/utils/GeometryUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
 import { BokehShader, BokehDepthShader } from 'three/addons/shaders/BokehShader2.js';
+import { HalftoneShader } from 'three/addons/shaders/HalftoneShader.js';
 import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
 import { HalftonePass } from 'three/addons/postprocessing/HalftonePass.js';
 import { DotScreenPass } from 'three/addons/postprocessing/DotScreenPass.js';
+import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
+import { HueSaturationShader } from 'three/addons/shaders/HueSaturationShader.js';
+import { BrightnessContrastShader } from 'three/addons/shaders/BrightnessContrastShader.js';
+import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
+import { BloomPass } from 'three/addons/postprocessing/BloomPass.js';
+import { SAOPass } from 'three/addons/postprocessing/SAOPass.js';
+import { CubeTexturePass } from 'three/addons/postprocessing/CubeTexturePass.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 // import './registerServiceWorker';
@@ -110,6 +119,7 @@ window.gamepadButtonRightBumperPressed = false;
 window.gamepadButtonTouchPressed = false;
 window.spinL2Triggered = false;
 window.spinR2Triggered = false;
+window.fractalL2Active = false;
 
 router.beforeEach((to, from, next) => {
 	const currentUser = firebase.auth().currentUser;
@@ -225,7 +235,15 @@ const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight,
 
 window.camera = camera;
 
-let renderer, controls, mapControls, canvas, canvasContainer, composer, rgbShiftPass, filmPass, halftonePass, dotPass;
+let renderer, controls, mapControls, canvas, canvasContainer, composer, renderPass, rgbShiftPass, filmPass, halftonePass, dotPass, afterimagePass;
+// Camera mode params
+window.icosaViewEnabled = false;
+window.icosaVertices = null;
+window.icosaIndex = 0;
+window.normalCameraPose = null; // { position: Vector3, up: Vector3 }
+window.normalCameraParams = null; // { fov, near, far }
+window.icosaCameraParams = null; // { fov, near, far }
+window.icosaHelper = null; // Mesh helper for icosahedron
 
 // RGB Shift effect parameters
 const params = {
@@ -287,6 +305,150 @@ function enableAudio() {
 }
 
 
+// Blend options for halftone GUI and keyboard controls
+const blendOptions = {
+    'AdditiveBlending': AdditiveBlending,
+    'MultiplyBlending': MultiplyBlending,
+    'SubtractiveBlending': SubtractiveBlending
+};
+
+// Loading text display
+let loadingTextVisible = false;
+
+
+// Setup GUI controls for halftone blending
+let halftoneGUI;
+let halftoneController; // Make accessible for external sync
+
+// Function to sync GUI controller with current halftonePass state
+function syncHalftoneGUI() {
+    if (!halftoneGUI || !halftoneController || !halftonePass) return;
+
+    // Update enabled state
+    halftoneController.enabled = halftonePass.enabled;
+
+    // Update uniforms from current halftonePass
+    if (halftonePass.uniforms) {
+        if (halftonePass.uniforms['blending']) {
+            halftoneController.shaderBlending = halftonePass.uniforms['blending'].value;
+        }
+        if (halftonePass.uniforms['radius']) {
+            halftoneController.radius = halftonePass.uniforms['radius'].value;
+        }
+        if (halftonePass.uniforms['scatter']) {
+            halftoneController.scatter = halftonePass.uniforms['scatter'].value;
+        }
+    }
+
+    // Update GUI display
+    halftoneGUI.controllers.forEach(controller => {
+        if (controller.property === 'enabled') {
+            controller.setValue(halftonePass.enabled);
+        }
+        if (controller.property === 'shaderBlending' && halftonePass.uniforms && halftonePass.uniforms['blending']) {
+            controller.setValue(halftonePass.uniforms['blending'].value);
+        }
+        if (controller.property === 'radius' && halftonePass.uniforms && halftonePass.uniforms['radius']) {
+            controller.setValue(halftonePass.uniforms['radius'].value);
+        }
+        if (controller.property === 'scatter' && halftonePass.uniforms && halftonePass.uniforms['scatter']) {
+            controller.setValue(halftonePass.uniforms['scatter'].value);
+        }
+    });
+}
+
+function setupHalftoneGUI() {
+    if (halftoneGUI) halftoneGUI.destroy();
+
+    halftoneGUI = new GUI({
+        title: 'BlendModes',
+        // autoPlace: false
+    });
+    halftoneGUI.domElement.style.left = '1380px'; // Position to the right of halftone GUI
+
+    // Position halftone GUI to the left of bokeh GUI
+    halftoneGUI.domElement.style.position = 'absolute';
+    halftoneGUI.domElement.style.top = '10px';
+
+    halftoneController = {
+        blendIndex: window.halftoneBlendIndex || 0,
+        materialBlending: AdditiveBlending,
+        blendMode: MultiplyBlending,
+        shaderBlendingMode: 1,
+        shaderBlending: halftonePass && halftonePass.uniforms && halftonePass.uniforms['blending'] ? halftonePass.uniforms['blending'].value : 1.0,
+        radius: halftonePass && halftonePass.uniforms && halftonePass.uniforms['radius'] ? halftonePass.uniforms['radius'].value : 4,
+        scatter: halftonePass && halftonePass.uniforms && halftonePass.uniforms['scatter'] ? halftonePass.uniforms['scatter'].value : 0,
+        enabled: halftonePass ? halftonePass.enabled : false
+    };
+
+    const shaderBlendOptions = {
+        'Linear (1)': 1,
+        'Multiply (2)': 2,
+        'Add (3)': 3,
+        'Lighter (4)': 4,
+        'Darker (5)': 5
+    };
+
+    const updateHalftoneBlending = function() {
+        if (!halftonePass || !halftonePass.uniforms) return;
+
+        // Create new ShaderMaterial with updated blending properties
+        const newMaterial = new ShaderMaterial( {
+            uniforms: halftonePass.uniforms,
+            fragmentShader: HalftoneShader.fragmentShader,
+            vertexShader: HalftoneShader.vertexShader,
+            blending: halftoneController.materialBlending,
+            blendMode: halftoneController.blendMode
+        } );
+
+        // Update halftonePass with new material
+        halftonePass.material = newMaterial;
+
+        // Update shader uniforms
+        halftonePass.uniforms['blendingMode'].value = halftoneController.shaderBlendingMode;
+        halftonePass.uniforms['blending'].value = halftoneController.shaderBlending;
+        halftonePass.uniforms['radius'].value = halftoneController.radius;
+        halftonePass.uniforms['scatter'].value = halftoneController.scatter;
+
+        halftonePass.enabled = halftoneController.enabled;
+
+        console.log(`GUI: Halftone - materialBlending: ${halftoneController.materialBlending}, blendMode: ${halftoneController.blendMode}, shaderBlending: ${halftoneController.shaderBlending}, shaderMode: ${halftoneController.shaderBlendingMode}`);
+    };
+
+    halftoneGUI.add(halftoneController, 'enabled').onChange(updateHalftoneBlending);
+    halftoneGUI.add(halftoneController, 'materialBlending', blendOptions).onChange(updateHalftoneBlending);
+    halftoneGUI.add(halftoneController, 'blendMode', blendOptions).onChange(updateHalftoneBlending);
+    halftoneGUI.add(halftoneController, 'shaderBlendingMode', shaderBlendOptions).onChange(updateHalftoneBlending);
+
+    // Add shader blending slider (controls the 'blending' uniform)
+    halftoneGUI.add(halftoneController, 'shaderBlending', 0.0, 2.0, 0.01).onChange(updateHalftoneBlending);
+
+    // Add radius and scatter controls
+    halftoneGUI.add(halftoneController, 'radius', 0.1, 20.0, 0.1).onChange(updateHalftoneBlending);
+    halftoneGUI.add(halftoneController, 'scatter', 0.0, 1.0, 0.01).onChange(updateHalftoneBlending);
+
+    // Quick preset buttons
+    halftoneGUI.add({ 'Additive+Additive': () => {
+        halftoneController.materialBlending = AdditiveBlending;
+        halftoneController.blendMode = AdditiveBlending;
+        halftoneController.shaderBlending = 1.0;
+        halftoneController.shaderBlendingMode = 1;
+        updateHalftoneBlending();
+        halftoneGUI.controllers.forEach(c => c.updateDisplay());
+    }}, 'Additive+Additive');
+
+    halftoneGUI.add({ 'Multiply+Multiply': () => {
+        halftoneController.materialBlending = MultiplyBlending;
+        halftoneController.blendMode = MultiplyBlending;
+        halftoneController.shaderBlending = 1.0;
+        halftoneController.shaderBlendingMode = 2;
+        updateHalftoneBlending();
+        halftoneGUI.controllers.forEach(c => c.updateDisplay());
+    }}, 'Multiply+Multiply');
+
+    updateHalftoneBlending();
+}
+
 // Setup GUI controls for bokeh effect
 function setupBokehGUI() {
     const matChanger = function () {
@@ -308,7 +470,14 @@ function setupBokehGUI() {
         bokehPass.material.needsUpdate = true;
     };
 
-    gui = new GUI();
+    gui = new GUI({
+        // autoPlace: false
+    });
+
+    // Position bokeh GUI to the right of halftone GUI
+    gui.domElement.style.position = 'absolute';
+    gui.domElement.style.top = '350px';
+    gui.domElement.style.left = '1380px'; // Position to the right of halftone GUI
 
     gui.add(effectController, 'enabled').onChange(matChanger);
     gui.add(effectController, 'jsDepthCalculation').onChange(matChanger);
@@ -343,9 +512,78 @@ function setupBokehGUI() {
     matChanger();
 }
 
+// Color-preserving dot shader
+const DotColorShader = {
+    uniforms: {
+        'tDiffuse': { value: null },
+        'center': { value: new Vector2(0.5, 0.5) },
+        'angle': { value: 0.0 },
+        'scale': { value: 1.0 },
+        'strength': { value: 0.8 }
+    },
+    vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        }
+    `,
+    fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform vec2 center;
+        uniform float angle;
+        uniform float scale;
+        uniform float strength;
+        varying vec2 vUv;
+
+        float pattern() {
+            float s = sin( angle ), c = cos( angle );
+            vec2 tex = vUv * scale - center;
+            vec2 point = vec2( c * tex.x - s * tex.y, s * tex.x + c * tex.y ) * scale;
+            return ( sin( point.x ) * sin( point.y ) ) * 0.5 + 0.5; // 0..1
+        }
+
+        void main() {
+            vec4 color = texture2D( tDiffuse, vUv );
+            float dots = pattern();
+            vec3 shaded = color.rgb * (0.6 + 0.4 * dots);
+            vec3 outColor = mix( color.rgb, shaded, clamp(strength, 0.0, 1.0) );
+            gl_FragColor = vec4( outColor, color.a );
+        }
+    `
+};
+
+// Mirror shader (screen-space flip)
+const MirrorAxisShader = {
+    uniforms: {
+        'tDiffuse': { value: null },
+        'mirrorX': { value: 0 },
+        'mirrorY': { value: 0 }
+    },
+    vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main(){
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform int mirrorX;
+        uniform int mirrorY;
+        varying vec2 vUv;
+        void main(){
+            vec2 uv = vUv;
+            if(mirrorX==1) uv.x = 1.0 - uv.x;
+            if(mirrorY==1) uv.y = 1.0 - uv.y;
+            gl_FragColor = texture2D(tDiffuse, uv);
+        }
+    `
+};
+
 const mouse = new Vector2();
 const raycaster = new Raycaster();
-const hemisphereLight = new HemisphereLight(0xFFFFFF, 0xFFFFFF);
+const hemisphereLight = new HemisphereLight(0x000000, 0xFFFFFF);
 const startTime = Date.now();
 let prevCanvasSize = window.innerWidth/2;
 let tweeningSculpturesOpacity = true;
@@ -362,12 +600,64 @@ let audioInitialized = false;
 let audioPhase = 0.0;
 let audioAttack = 0.35; // faster attack
 let audioDecay = 0.08;  // slower decay
+let hueSatPass = null; // palette hue/saturation pass
+let brightnessPass = null; // brightness/contrast pass
+window.paletteState = { hue: 0.0, saturation: 0.0, brightness: 0.0, contrast: 0.0, hsvMode: false, rsBoost: 0.0 };
+window.halftoneBlendIndex = 0; // cycle through blend modes on key presses
+window.halftoneParams = {
+    shape: 1,
+    radius: 4,
+    rotateR: Math.PI / 12,
+    rotateB: Math.PI / 12 * 2,
+    rotateG: Math.PI / 12 * 3,
+    scatter: 0,
+    greyscale: false,
+    disable: false
+};
+let vignettePass = null; // vignette pass
+let bloomPass = null; // bloom pass (third row)
+let saoPass = null; // SAO pass (third row)
+let cubeTexturePass = null; // CubeTexture pass (third row)
+let dotColorPass = null; // Color-preserving dot pass
+let mirrorPass = null; // Mirror pass
+let mirrorState = { x: false, y: false };
 window.audioModulationEnabled = false; // toggled via DS PS/Home button (16)
 window.audioLevel = 0.0; // expose for shaders
-window.audioGain = 3.0; // boost for audioLevel (adjustable)
+window.audioGain = 2.0; // boost for audioLevel (adjustable)
 window.rotateXEnabled = false; // toggle sculpture rotation on X
 window.rotXAngle = 0.0;       // accumulated X rotation
 window.prevR2Bin = -1;       // discrete bin for R2-driven bokeh randomization
+window.bgMode = 1; // 0=black, 1=white (default), 2=random
+// Keyboard state flags
+window.keyboard = {
+    pressed: new Set(),
+    holdQ: false, holdW: false,
+    paletteActive: new Set(),
+    bokehBackup: null,
+    focalBackup: null,
+    lastFractalTime: 0
+};
+
+// Per-key palette constants (hue in -1..1, saturation in -1..1)
+// Second row palette keys (A..;'")
+window.paletteMap = {
+    'a': { h: 0.33, s: 0.28, seed: 11 }, // greenish
+    's': { h: 0.50, s: 0.26, seed: 13 }, // cyan
+    'd': { h: 0.70, s: 0.24, seed: 17 }, // blue
+    'f': { h: -0.33, s: 0.27, seed: 19 }, // magenta
+    'g': { h: -0.18, s: 0.25, seed: 23 }, // purple
+    // 'h' reserved for vignette toggle
+    'j': { h: 0.16, s: 0.26, seed: 31 }, // yellow-green
+    'k': { h: -0.70, s: 0.23, seed: 37 }, // red-magenta
+    'l': { h: 0.70, s: 0.24, seed: 17  },
+    ';': { h: -10.10, s: 0.24, seed: 43 },
+    "'": { h: 20.00, s: 0.20, seed: 47 }
+};
+
+function _randFromSeed(seed) {
+    let x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+}
 
 function createAudioUI() {
     // Tiny preset button (top-left)
@@ -391,6 +681,8 @@ function createAudioUI() {
     btn.style.zIndex = '10010';
     btn.addEventListener('click', () => showAudioOverlay());
     document.body.appendChild(btn);
+    // Auto-click the note icon after 1 second
+    try { setTimeout(() => { try { btn.click(); } catch(e){} }, 1000); } catch(e){}
     window.topControls.push(btn);
 
     // 🔊 Volume Indicator
@@ -519,6 +811,94 @@ function createAudioUI() {
     rndBtn.addEventListener('click', () => window.loadRandomSculpture && window.loadRandomSculpture());
     document.body.appendChild(rndBtn);
     window.topControls.push(rndBtn);
+
+    // Help icon button (top)
+    const helpBtn = document.createElement('button');
+    helpBtn.textContent = '?';
+    helpBtn.title = 'Show keyboard/gamepad help';
+    helpBtn.style.position = 'fixed';
+    helpBtn.style.top = '8px';
+    helpBtn.style.left = '226px';
+    helpBtn.style.height = '24px';
+    helpBtn.style.width = '24px';
+    helpBtn.style.padding = '0';
+    helpBtn.style.border = '1px solid #ddd';
+    helpBtn.style.borderRadius = '6px';
+    helpBtn.style.background = '#fff';
+    helpBtn.style.color = '#333';
+    helpBtn.style.cursor = 'pointer';
+    helpBtn.style.zIndex = '10010';
+    helpBtn.style.fontSize = '14px';
+    helpBtn.addEventListener('click', () => showHelpModal());
+    document.body.appendChild(helpBtn);
+    window.topControls.push(helpBtn);
+
+    // Background cycle button (black → white → random)
+    const bgBtn = document.createElement('button');
+    bgBtn.textContent = 'bg';
+    bgBtn.title = 'Background: black → white → random';
+    bgBtn.style.position = 'fixed';
+    bgBtn.style.top = '8px';
+    bgBtn.style.left = '252px';
+    bgBtn.style.height = '24px';
+    bgBtn.style.padding = '0 6px';
+    bgBtn.style.border = '1px solid #ddd';
+    bgBtn.style.borderRadius = '6px';
+    bgBtn.style.background = '#fff';
+    bgBtn.style.color = '#333';
+    bgBtn.style.cursor = 'pointer';
+    bgBtn.style.zIndex = '10010';
+    bgBtn.style.fontSize = '12px';
+    bgBtn.addEventListener('click', () => {
+        try {
+            window.bgMode = (typeof window.bgMode === 'number' ? window.bgMode : 1);
+            window.bgMode = (window.bgMode + 1) % 3;
+            applyBackground(window.bgMode);
+        } catch(e) { console.error(e); }
+    });
+    document.body.appendChild(bgBtn);
+    window.topControls.push(bgBtn);
+
+	// Randomize Params button
+	const rndPBtn = document.createElement('button');
+	rndPBtn.textContent = 'rndP';
+	rndPBtn.title = 'Randomize color/effect parameters';
+	rndPBtn.style.position = 'fixed';
+	rndPBtn.style.top = '8px';
+	rndPBtn.style.left = '284px';
+	rndPBtn.style.height = '24px';
+	rndPBtn.style.padding = '0 6px';
+	rndPBtn.style.border = '1px solid #ddd';
+	rndPBtn.style.borderRadius = '6px';
+	rndPBtn.style.background = '#fff';
+	rndPBtn.style.color = '#333';
+	rndPBtn.style.cursor = 'pointer';
+	rndPBtn.style.zIndex = '10010';
+	rndPBtn.style.fontSize = '12px';
+	rndPBtn.addEventListener('click', () => { try { randomizeAllParams(); } catch(e) { console.error(e); } });
+	document.body.appendChild(rndPBtn);
+	window.topControls.push(rndPBtn);
+
+    // Palette button (Photoshop-like controls)
+    const palBtn = document.createElement('button');
+    palBtn.textContent = '🎨';
+    palBtn.title = 'Palette / Color Grading';
+    palBtn.style.position = 'fixed';
+    palBtn.style.top = '8px';
+    palBtn.style.left = '330px';
+    palBtn.style.height = '24px';
+    palBtn.style.width = '28px';
+    palBtn.style.padding = '0';
+    palBtn.style.border = '1px solid #ddd';
+    palBtn.style.borderRadius = '6px';
+    palBtn.style.background = '#fff';
+    palBtn.style.color = '#333';
+    palBtn.style.cursor = 'pointer';
+    palBtn.style.zIndex = '10010';
+    palBtn.style.fontSize = '14px';
+    palBtn.addEventListener('click', () => showPalettePanel());
+    document.body.appendChild(palBtn);
+    window.topControls.push(palBtn);
 }
 function updateAudioIndicator(level) {
     const indicator = window.audioVolumeIndicator;
@@ -536,13 +916,56 @@ function setHeaderVisible(visible) {
     window.headerHidden = !visible;
 }
 
+function applyBackground(mode) {
+    try {
+        if (!renderer) return;
+        renderer.setClearAlpha(1);
+
+        // Decide color
+        let numeric = 0x000000; // default black
+        if (mode === 0) {
+            numeric = 0x000000; // black
+        } else if (mode === 1) {
+            numeric = 0xffffff; // white
+        } else {
+            numeric = randomBrightColor(); // random bright
+        }
+        const hex = '#' + ('000000' + numeric.toString(16)).slice(-6);
+
+        // Renderer and canvas
+        renderer.setClearColor(numeric, 1);
+        if (renderer.domElement) renderer.domElement.style.backgroundColor = hex;
+
+        // Page background
+        try {
+            document.documentElement.style.backgroundColor = hex;
+            document.body.style.backgroundColor = hex;
+        } catch(e) {}
+
+        // Action bar background
+        try {
+            const actionBar = document.querySelector('.action-bar');
+            if (actionBar) actionBar.style.background = hex;
+        } catch(e) {}
+
+        if (scene) scene.background = null;
+    } catch(e) { console.error('applyBackground failed', e); }
+}
+
+function randomBrightColor() {
+    const r = 64 + Math.floor(Math.random() * 192);
+    const g = 64 + Math.floor(Math.random() * 192);
+    const b = 64 + Math.floor(Math.random() * 192);
+    return (r << 16) | (g << 8) | b;
+}
+
 // Smooth 180° camera spin around controls.target
-function spinCamera180(clockwise = true, duration = 450) {
+function spinCamera180(clockwise = true, duration = 450, spin = 1) {
     if (!controls) return;
     const target = controls.target.clone();
     const startVec = camera.position.clone().sub(target);
     const axis = new Vector3(0, 1, 0);
-    const delta = (clockwise ? -1 : 1) * Math.PI; // clockwise negative yaw
+    const delta = (clockwise ? -1*spin : spin) * Math.PI; // clockwise negative yaw
     const state = { t: 0 };
     new TWEEN.Tween(state)
         .to({ t: 1 }, duration)
@@ -554,6 +977,1070 @@ function spinCamera180(clockwise = true, duration = 450) {
             camera.lookAt(target);
         })
         .start();
+}
+
+// Compute icosahedron vertices on unit sphere
+function computeIcosahedronVertices(scale = 1.0) {
+    const t = (1 + Math.sqrt(5)) / 2; // golden ratio
+    const verts = [
+        new Vector3(-1,  t,  0), new Vector3( 1,  t,  0), new Vector3(-1, -t,  0), new Vector3( 1, -t,  0),
+        new Vector3( 0, -1,  t), new Vector3( 0,  1,  t), new Vector3( 0, -1, -t), new Vector3( 0,  1, -t),
+        new Vector3( t,  0, -1), new Vector3( t,  0,  1), new Vector3(-t,  0, -1), new Vector3(-t,  0,  1)
+    ];
+    // normalize and scale
+    verts.forEach(v => v.normalize().multiplyScalar(scale));
+    return verts;
+}
+
+// Smoothly tween camera position and perspective parameters
+let _cameraTween = null;
+function tweenCameraToConfig(targetPos, lookTarget, targetFov, targetNear, durationMs = 900) {
+    try {
+        if (_cameraTween) { try { _cameraTween.stop(); } catch(e){} _cameraTween = null; }
+        const start = {
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z,
+            fov: camera.fov,
+            near: camera.near
+        };
+        const end = {
+            x: targetPos.x,
+            y: targetPos.y,
+            z: targetPos.z,
+            fov: targetFov,
+            near: targetNear
+        };
+        _cameraTween = new TWEEN.Tween(start)
+            .to(end, Math.max(100, durationMs))
+            .easing(TWEEN.Easing.Quadratic.InOut)
+            .onUpdate(() => {
+                camera.position.set(start.x, start.y, start.z);
+                camera.fov = start.fov;
+                camera.near = start.near;
+                camera.updateProjectionMatrix();
+                camera.lookAt(lookTarget);
+            })
+            .onComplete(() => {
+                camera.position.copy(targetPos);
+                camera.fov = targetFov;
+                camera.near = targetNear;
+                camera.updateProjectionMatrix();
+                camera.lookAt(lookTarget);
+                _cameraTween = null;
+            })
+            .start();
+    } catch(e) { console.error('tweenCameraToConfig failed', e); }
+}
+
+function ensureIcosaHelper(radius, target) {
+    try {
+        if (!window.icosaHelper) {
+            const geo = new IcosahedronGeometry(radius, 0);
+            const mat = new MeshBasicMaterial({ color: 0x88ccff, wireframe: true, transparent: true, opacity: 0.35 });
+            const mesh = new Mesh(geo, mat);
+            mesh.name = 'icosaHelper';
+            mesh.position.copy(target);
+            window.icosaHelper = mesh;
+            scene.add(mesh);
+        } else {
+            // update existing
+            const geo = new IcosahedronGeometry(radius, 0);
+            window.icosaHelper.geometry.dispose();
+            window.icosaHelper.geometry = geo;
+            window.icosaHelper.position.copy(target);
+        }
+    } catch(e) { console.error('icosa helper failed', e); }
+}
+
+function removeIcosaHelper() {
+    try {
+        if (window.icosaHelper && window.icosaHelper.parent) {
+            window.icosaHelper.parent.remove(window.icosaHelper);
+        }
+        window.icosaHelper = null;
+    } catch(e) {}
+}
+
+// Roll camera around view axis while keeping target
+function rollCamera(deltaRoll) {
+    try {
+        if (!controls) return;
+        const target = controls.target.clone();
+        const view = target.clone().sub(camera.position).normalize();
+        const q = new Quaternion().setFromAxisAngle(view, deltaRoll);
+        camera.up.applyQuaternion(q).normalize();
+        camera.lookAt(target);
+    } catch(e) { /* noop */ }
+}
+
+// Fractalize RGB aberration briefly (multi-iteration pulsing of amount/angle)
+function fractalizeAberration(iterations = 5, stepMs = 60) {
+    if (!rgbShiftPass || !rgbShiftPass.uniforms) return;
+    const baseAmt = params.rsx;
+    const baseAng = params.rsy;
+    let i = 0;
+    function step() {
+        if (i >= iterations) {
+            // restore
+            try {
+                params.rsx = baseAmt;
+                params.rsy = baseAng;
+                rgbShiftPass.uniforms['amount'].value = baseAmt;
+                rgbShiftPass.uniforms.amount.value = baseAmt;
+                rgbShiftPass.uniforms['angle'].value = baseAng;
+            } catch(e) {}
+            window.fractalL2Active = false;
+            return;
+        }
+        const scale = Math.pow(0.5, i); // 1, 0.5, 0.25...
+        const amt = baseAmt + baseAmt * 0.6 * scale;
+        const ang = baseAng + (i * Math.PI / 6); // +30° per step
+        try {
+            params.rsx = amt;
+            params.rsy = ang;
+            rgbShiftPass.enabled = true;
+            rgbShiftPass.uniforms['amount'].value = amt;
+            rgbShiftPass.uniforms.amount.value = amt;
+            rgbShiftPass.uniforms['angle'].value = ang;
+        } catch(e) {}
+        i++;
+        setTimeout(step, stepMs);
+    }
+    step();
+}
+
+// Keyboard controls: momentary Q/W, toggles for A/S/D/F/G/H
+function setupKeyboardControls() {
+    if (window._keyboardSetup) return;
+    window._keyboardSetup = true;
+    window.addEventListener('keydown', handleKeyDown, { passive: true });
+    window.addEventListener('keyup', handleKeyUp, { passive: true });
+}
+
+function handleKeyDown(e) {
+    const key = normalizeKey(e);
+    if (!key) return;
+    if (window.keyboard.pressed.has(key)) return; // prevent repeats
+    window.keyboard.pressed.add(key);
+
+    const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.7;
+
+    switch (key) {
+        // Momentary holds
+        case 'q': // Halftone hold
+            if (halftonePass && halftonePass.uniforms) {
+                window.keyboard.holdQ = true;
+                halftonePass.enabled = true;
+                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 20.5 + a * 2.5;
+                // setHalftoneScatter(10.5 + a);
+                syncHalftoneGUI();
+            }
+            break;
+        case 'w': // Film hold
+            if (filmPass && filmPass.uniforms) {
+                window.keyboard.holdW = true;
+                filmPass.enabled = true;
+                filmPass.uniforms['nIntensity'].value = 0.2 + 0.8 * a;
+                filmPass.uniforms['sIntensity'].value = 0.05 + 0.25 * a;
+                filmPass.uniforms['sCount'].value = 1024 + Math.floor(3072 * a);
+                filmPass.uniforms['grayscale'].value = false;
+            }
+            break;
+        case 'e': // RGB shift hold
+            if (rgbShiftPass && rgbShiftPass.uniforms) {
+                window.keyboard.holdE = true;
+                rgbShiftPass.enabled = true;
+                rgbShiftPass.uniforms['amount'].value = 0.02 + 0.12 * a;
+                rgbShiftPass.uniforms.amount.value = 0.02 + 0.12 * a;
+                rgbShiftPass.uniforms['angle'].value = audioPhase * 0.33;
+            }
+            break;
+        case 'r': // Dot color hold
+            if (dotColorPass && dotColorPass.uniforms) {
+                window.keyboard.holdR = true;
+                dotColorPass.enabled = true;
+                dotColorPass.uniforms['angle'].value = a * Math.PI;
+                dotColorPass.uniforms['scale'].value = 1.0 - 0.8 * a;
+                dotColorPass.uniforms['strength'].value = 0.6 + 0.4 * a;
+            }
+            break;
+        case 't': // Afterimage damp hold
+            if (afterimagePass && afterimagePass.uniforms) {
+                window.keyboard.holdT = true;
+                afterimagePass.enabled = true;
+                afterimagePass.uniforms['damp'].value = 2.94 - 0.12 * a;
+            }
+            break;
+        case 'y': // Vignette hold
+            if (vignettePass && vignettePass.uniforms) {
+                window.keyboard.holdY = true;
+                vignettePass.enabled = true;
+                vignettePass.uniforms['offset'].value = 1.2;
+                vignettePass.uniforms['darkness'].value = 3.2 + 0.6 * a;
+            }
+            break;
+        case 'u': // Halftone hold (color)
+            if (halftonePass && halftonePass.uniforms) {
+                window.keyboard.holdU = true;
+                halftonePass.enabled = true;
+
+                // setHalftoneScatter(15.2 + 0.8 * a);
+                syncHalftoneGUI();
+            }
+            break;
+        case 'i': // Film hold (color)
+            if (hueSatPass && hueSatPass.uniforms) {
+                hueSatPass.enabled = true;
+            }
+            if (filmPass && filmPass.uniforms) {
+                window.keyboard.holdI = true;
+                filmPass.enabled = true;
+                filmPass.uniforms['nIntensity'].value = 5.1 + 0.9 * a;
+                filmPass.uniforms['sIntensity'].value = 5.55 + 0.35 * a;
+                filmPass.uniforms['sCount'].value = 512 + Math.floor(4096 * a);
+                filmPass.uniforms['grayscale'].value = false;
+            }
+            break;
+        case 'o': // Hue/Sat wobble hold
+            window.keyboard.holdO = true;
+            if (hueSatPass && hueSatPass.uniforms) {
+                hueSatPass.enabled = true;
+            }
+            break;
+        case 'p': // Fractalize aberration burst once
+            window.keyboard.holdP = true;
+            {
+                const now = performance.now();
+                if (!window.keyboard.lastFractalTime || now - window.keyboard.lastFractalTime > 250) {
+                    window.keyboard.lastFractalTime = now;
+                    fractalizeAberration(6, 55);
+                }
+            }
+            break;
+        case '[': // quick CCW micro-spin + short blur
+            niceBlurPulse(300, 150);
+            spinCamera180(false, 250, 0.5);
+            break;
+        case ']': // quick CW micro-spin + short blur
+            niceBlurPulse(300, 150);
+            spinCamera180(true, 250, 0.5);
+            break;
+        case '\\': // combo glitch hold
+            window.keyboard.holdBackslash = true;
+            if (rgbShiftPass && rgbShiftPass.uniforms) rgbShiftPass.enabled = true;
+            if (dotPass && dotPass.uniforms) dotPass.enabled = true;
+
+
+            // setHalftoneScatter(5.5);
+
+            break;
+
+        // Second row: one-way enables (no toggle off)
+        case 'a':
+            if (halftonePass && halftonePass.uniforms) {
+                halftonePass.enabled = true;
+                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 20.5 + a * 2.5;
+                // setHalftoneScatter(10.5 + a);
+                syncHalftoneGUI();
+            }
+        case 's':
+            if (filmPass && filmPass.uniforms) {
+                filmPass.enabled = true;
+                filmPass.uniforms['nIntensity'].value = 0.35;
+                filmPass.uniforms['sIntensity'].value = 0.08;
+                filmPass.uniforms['sCount'].value = 2048;
+                filmPass.uniforms['grayscale'].value = false;
+            }
+            break;
+        case 'd':
+            if (rgbShiftPass && rgbShiftPass.uniforms) {
+                rgbShiftPass.enabled = true;
+                rgbShiftPass.uniforms['amount'].value = 0.035;
+                rgbShiftPass.uniforms.amount.value = 0.035;
+                rgbShiftPass.uniforms['angle'].value = Math.PI * 0.1;
+            }
+            break;
+        case 'f':
+            if (dotPass && dotPass.uniforms) {
+                dotPass.enabled = true;
+                dotPass.uniforms['angle'].value = Math.PI / 6;
+                dotPass.uniforms['scale'].value = 0.6;
+            }
+            break;
+        case 'g':
+            if (afterimagePass) afterimagePass.enabled = true;
+            break;
+        case 'h':
+            // Do not enable bokeh from keyboard; reserved for R1 only
+            // Optional: enable vignette instead for a subtle effect
+            if (vignettePass && vignettePass.uniforms) {
+                vignettePass.enabled = true;
+                vignettePass.uniforms['offset'].value = 1.2;
+                vignettePass.uniforms['darkness'].value = 1.35;
+            }
+
+            break;
+        case 'k':
+            // Afterimage only; do not touch bokeh
+            if (halftonePass && halftonePass.uniforms) {
+                window.keyboard.holdU = true;
+                halftonePass.enabled = true;
+                syncHalftoneGUI();
+
+                // setHalftoneScatter(15.2 + 0.8 * a);
+            }
+
+
+
+            if (afterimagePass && afterimagePass.uniforms) afterimagePass.enabled = true;
+            break;
+        case '4': {
+            // Cycle through blending and blendMode properties
+            halftonePass.enabled = true;
+            if (halftonePass && halftonePass.material && halftonePass.uniforms && halftonePass.uniforms['blendingMode']) {
+                window.halftoneBlendIndex = (window.halftoneBlendIndex + 1) % 8;
+
+                // Define different combinations of blending and blendMode properties
+                const blendingCombos = [
+                    { blending: AdditiveBlending, blendMode: AdditiveBlending, shaderMode: 1, desc: "Add+Add+Linear" },
+                    { blending: AdditiveBlending, blendMode: MultiplyBlending, shaderMode: 2, desc: "Add+Mult+Multiply" },
+                    { blending: MultiplyBlending, blendMode: AdditiveBlending, shaderMode: 3, desc: "Mult+Add+Add" },
+                    { blending: MultiplyBlending, blendMode: MultiplyBlending, shaderMode: 4, desc: "Mult+Mult+Lighter" },
+                    { blending: SubtractiveBlending, blendMode: AdditiveBlending, shaderMode: 5, desc: "Sub+Add+Darker" },
+                    { blending: SubtractiveBlending, blendMode: MultiplyBlending, shaderMode: 1, desc: "Sub+Mult+Linear" },
+                    { blending: AdditiveBlending, blendMode: SubtractiveBlending, shaderMode: 2, desc: "Add+Sub+Multiply" },
+                    { blending: MultiplyBlending, blendMode: SubtractiveBlending, shaderMode: 3, desc: "Mult+Sub+Add" }
+                ];
+
+                const currentCombo = blendingCombos[window.halftoneBlendIndex];
+
+                // Create new ShaderMaterial with updated blending properties
+                const newMaterial = new ShaderMaterial( {
+                    uniforms: halftonePass.uniforms,
+                    fragmentShader: HalftoneShader.fragmentShader,
+                    vertexShader: HalftoneShader.vertexShader,
+                    blending: currentCombo.blending,
+                    blendMode: currentCombo.blendMode
+                } );
+
+                // Update halftonePass with new material
+                halftonePass.material = newMaterial;
+
+                // Then update halftonePass object shader uniforms
+                halftonePass.uniforms['blendingMode'].value = currentCombo.shaderMode;
+                halftonePass.uniforms['blending'].value = 1.0;
+
+                // Sync GUI controllers if they exist
+                if (halftoneGUI && halftoneGUI.controllers) {
+                    halftoneGUI.controllers.forEach(controller => {
+                        if (controller.property === 'blending') {
+                            controller.setValue(currentCombo.blending);
+                        }
+                        if (controller.property === 'blendMode') {
+                            controller.setValue(currentCombo.blendMode);
+                        }
+                        if (controller.property === 'shaderBlendingMode') {
+                            controller.setValue(currentCombo.shaderMode);
+                        }
+                    });
+                }
+
+                console.log(`Blend combo ${window.halftoneBlendIndex}: ${currentCombo.desc}`);
+            }
+            break;
+        }
+        case '5': {
+            // Toggle loading text display
+
+            break;
+        }
+        // Third row: content
+        case 'z':
+            // Generate lines set A (Hilbert dashed)
+            try { generateLinesSetA(0xffffff, 0xff00ff); } catch(err) { console.error(err); }
+            break;
+        case 'x':
+            // With Shift: mirror X, without: generate lines set B
+            if (e.shiftKey) {
+                mirrorState.x = true;
+                if (mirrorPass && mirrorPass.uniforms) {
+                    mirrorPass.enabled = true;
+                    mirrorPass.uniforms['mirrorX'].value = mirrorState.x ? 1 : 0;
+                    mirrorPass.uniforms['mirrorY'].value = mirrorState.y ? 1 : 0;
+                }
+            } else {
+                try { generateLinesSetB(); } catch(err) { console.error(err); }
+                // Add aggressive halftone/dot trails
+                if (halftonePass && halftonePass.uniforms) {
+                    halftonePass.enabled = true;
+                    if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
+                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 2.4;
+                    syncHalftoneGUI();
+                    if (halftonePass.uniforms['blending']) halftonePass.uniforms['blending'].value = 1.0;
+                }
+                if (dotPass && dotPass.uniforms) {
+                    dotPass.enabled = true;
+                    dotPass.uniforms['angle'].value = Math.PI * 0.33;
+                    dotPass.uniforms['scale'].value = 0.3;
+                }
+                if (afterimagePass && afterimagePass.uniforms) {
+                    afterimagePass.enabled = true;
+                    afterimagePass.uniforms['damp'].value = 0.78;
+                }
+            }
+            break;
+        case 'c':
+            // With Shift: mirror Y, without: clear generated lines
+            if (e.shiftKey) {
+                mirrorState.y = true;
+                if (mirrorPass && mirrorPass.uniforms) {
+                    mirrorPass.enabled = true;
+                    mirrorPass.uniforms['mirrorX'].value = mirrorState.x ? 1 : 0;
+                    mirrorPass.uniforms['mirrorY'].value = mirrorState.y ? 1 : 0;
+                }
+            } else {
+                try { clearGeneratedLines(); } catch(err) { console.error(err); }
+                // Another "wtf" combo: strong RGB shift + rotated dots
+                if (rgbShiftPass && rgbShiftPass.uniforms) {
+                    rgbShiftPass.enabled = true;
+                    rgbShiftPass.uniforms['amount'].value = 0.22;
+                    if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = 0.22;
+                    rgbShiftPass.uniforms['angle'].value = Math.PI * 0.5;
+                }
+                if (dotPass && dotPass.uniforms) {
+                    dotPass.enabled = true;
+                    dotPass.uniforms['angle'].value = Math.PI * 0.5;
+                    dotPass.uniforms['scale'].value = 0.25;
+                }
+                if (filmPass && filmPass.uniforms) {
+                    filmPass.enabled = true;
+                    filmPass.uniforms['nIntensity'].value = 0.6;
+                    filmPass.uniforms['sIntensity'].value = 0.12;
+                    filmPass.uniforms['sCount'].value = 3072;
+                    filmPass.uniforms['grayscale'].value = false;
+                }
+            }
+            break;
+        case '1': {
+            // Toggle icosahedron perspective positions around target
+            const target = controls && controls.target ? controls.target.clone() : new Vector3(0,0,0);
+            if (!window.normalCameraParams) {
+                window.normalCameraParams = { fov: camera.fov, near: camera.near, far: camera.far };
+            }
+            if (!window.icosaCameraParams) {
+                window.icosaCameraParams = { fov: 10, near: 0.1, far: camera.far };
+            }
+            if (!window.icosaVertices) {
+                window.icosaVertices = computeIcosahedronVertices(1.0);
+                window.icosaIndex = 0;
+            }
+            if (!window.icosaViewEnabled) {
+                // enable: store pose and snap to nearest icosa vertex at current radius
+                window.normalCameraPose = { position: camera.position.clone(), up: camera.up.clone() };
+                const radius = camera.position.clone().sub(target).length();
+                // choose next vertex
+                const v = window.icosaVertices[window.icosaIndex % window.icosaVertices.length].clone().normalize().multiplyScalar(radius);
+                window.icosaIndex++;
+                camera.position.copy(target.clone().add(v));
+                camera.up.set(0,1,0);
+                camera.lookAt(target);
+                // apply icosa camera params
+                camera.fov = window.icosaCameraParams.fov;
+                camera.near = window.icosaCameraParams.near;
+                camera.updateProjectionMatrix();
+                // helper mesh around target
+                ensureIcosaHelper(radius, target);
+                window.icosaViewEnabled = true;
+            } else {
+                // disable: restore
+                if (window.normalCameraPose) {
+                    camera.position.copy(window.normalCameraPose.position);
+                    camera.up.copy(window.normalCameraPose.up);
+                    camera.lookAt(target);
+                }
+                if (window.normalCameraParams) {
+                    camera.fov = window.normalCameraParams.fov;
+                    camera.near = window.normalCameraParams.near;
+                    camera.updateProjectionMatrix();
+                }
+                removeIcosaHelper();
+                window.icosaViewEnabled = false;
+            }
+            break;
+        }
+        case '2': {
+            // Randomize FOV/near for both normal and icosa presets; apply active
+            const randIn = (min, max) => min + Math.random() * (max - min);
+            // randomize normal
+            const nfov = Math.max(20, Math.min(100, randIn(30, 90)));
+            const nnear = Math.max(0.02, Math.min(2.0, randIn(0.05, 1.0)));
+            // randomize icosa
+            const ifov = Math.max(25, Math.min(110, randIn(35, 100)));
+            const inear = Math.max(0.02, Math.min(1.0, randIn(0.05, 0.5)));
+            window.normalCameraParams = window.normalCameraParams || { fov: camera.fov, near: camera.near, far: camera.far };
+            window.icosaCameraParams = window.icosaCameraParams || { fov: camera.fov, near: camera.near, far: camera.far };
+            window.normalCameraParams.fov = nfov;
+            window.normalCameraParams.near = nnear;
+            window.icosaCameraParams.fov = ifov;
+            window.icosaCameraParams.near = inear;
+            if (window.icosaViewEnabled) {
+                camera.fov = window.icosaCameraParams.fov;
+                camera.near = window.icosaCameraParams.near;
+            } else {
+                camera.fov = window.normalCameraParams.fov;
+                camera.near = window.normalCameraParams.near;
+            }
+            camera.updateProjectionMatrix();
+                syncHalftoneGUI();
+            break;
+        }
+        case 'v':
+            // Shift+Z emulation: toggle both X and Y mirrors
+            if (e.shiftKey) {
+                mirrorState.x = true; mirrorState.y = true;
+                if (mirrorPass && mirrorPass.uniforms) {
+                    mirrorPass.enabled = true;
+                    mirrorPass.uniforms['mirrorX'].value = mirrorState.x ? 1 : 0;
+                    mirrorPass.uniforms['mirrorY'].value = mirrorState.y ? 1 : 0;
+                }
+            } else {
+                if (afterimagePass) afterimagePass.enabled = true;
+            }
+            break;
+        case 'b':
+            halftonePulse(2.0, 0.7, 350, 350, 120);
+            break;
+        case 'n':
+            dotPulse(Math.PI / 4, 0.5, 250, 250, 80);
+            break;
+        case 'm':
+            filmPulse(0.5, 0.12, 2200, 220);
+            break;
+        case ',':
+            halftonePulse(1.0, 0.9, 180, 420, 60);
+            break;
+        case '.':
+            halftonePulse(0.8, 0.3, 240, 240, 0);
+            break;
+        case '/':
+            // cinematic combo: Bloom + SAO (one-way enable)
+            if (bloomPass) bloomPass.enabled = true;
+            if (saoPass) saoPass.enabled = true;
+            break;
+        default: break;
+    }
+}
+
+function handleKeyUp(e) {
+    const key = normalizeKey(e);
+    window.keyboard.pressed.delete(key);
+    switch (key) {
+        case 'q':
+            if (window.keyboard.holdQ && halftonePass) {
+                window.keyboard.holdQ = false;
+                halftonePass.enabled = false;
+                syncHalftoneGUI();
+
+            }
+            break;
+        case 'w':
+            if (window.keyboard.holdW && filmPass) {
+                window.keyboard.holdW = false;
+                filmPass.enabled = false;
+            }
+            break;
+        case 'e':
+            if (window.keyboard.holdE && rgbShiftPass && rgbShiftPass.uniforms) {
+                window.keyboard.holdE = false;
+                rgbShiftPass.uniforms['amount'].value = params.rsx;
+                rgbShiftPass.uniforms.amount.value = params.rsx;
+                rgbShiftPass.uniforms['angle'].value = params.rsy;
+            }
+            break;
+        case 'r':
+            if (window.keyboard.holdR && dotPass) {
+                window.keyboard.holdR = false;
+                dotPass.enabled = false;
+            }
+            break;
+        case 't':
+            if (window.keyboard.holdT && afterimagePass && afterimagePass.uniforms) {
+                window.keyboard.holdT = false;
+                afterimagePass.uniforms['damp'].value = 0.94;
+                afterimagePass.enabled = false;
+            }
+            break;
+        case 'y':
+            if (window.keyboard.holdY && vignettePass) {
+                window.keyboard.holdY = false;
+                vignettePass.enabled = false;
+            }
+            break;
+        case 'u':
+            if (window.keyboard.holdU && halftonePass) {
+                window.keyboard.holdU = false;
+                // halftonePass.enabled = false;
+            }
+            break;
+        case 'i':
+            if (window.keyboard.holdI && filmPass) {
+                window.keyboard.holdI = false;
+                filmPass.enabled = false;
+            }
+            break;
+        case 'o':
+            if (window.keyboard.holdO) {
+                window.keyboard.holdO = false;
+                // disable hueSat only if no palettes active
+                if (!(window.keyboard.paletteActive && window.keyboard.paletteActive.size > 0) && hueSatPass) {
+                    hueSatPass.enabled = false;
+                }
+            }
+            break;
+        case '\\':
+            if (window.keyboard.holdBackslash) {
+                window.keyboard.holdBackslash = false;
+                if (dotPass) dotPass.enabled = false;
+                if (halftonePass) halftonePass.enabled = false;
+            }
+            break;
+        default: break;
+    }
+}
+
+function applyHeldKeyEffects() {
+    const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.7;
+    if (window.keyboard.holdQ && halftonePass && halftonePass.uniforms) {
+
+        halftonePass.enabled = true;
+        // if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.5 + a * 2.5;
+        syncHalftoneGUI();
+    }
+    if (window.keyboard.holdW && filmPass && filmPass.uniforms) {
+        filmPass.enabled = true;
+        filmPass.uniforms['nIntensity'].value = 0.2 + 0.8 * a;
+        filmPass.uniforms['sIntensity'].value = 0.05 + 0.25 * a;
+        filmPass.uniforms['sCount'].value = 1024 + Math.floor(3072 * a);
+        filmPass.uniforms['grayscale'].value = false;
+    }
+    if (window.keyboard.holdE && rgbShiftPass && rgbShiftPass.uniforms) {
+        const amt = 0.02 + 0.12 * a * (0.7 + 0.3 * Math.abs(Math.sin(audioPhase * 1.7)));
+        rgbShiftPass.enabled = true;
+        rgbShiftPass.uniforms['amount'].value = amt;
+        rgbShiftPass.uniforms.amount.value = amt;
+        rgbShiftPass.uniforms['angle'].value = 0.3 + 0.7 * Math.sin(audioPhase * 0.5);
+    }
+    if (window.keyboard.holdR && dotPass && dotPass.uniforms) {
+        dotPass.enabled = true;
+        dotPass.uniforms['angle'].value = (Math.PI / 4) * (1 + Math.sin(audioPhase));
+        dotPass.uniforms['scale'].value = 0.3 + 0.7 * (1 - a);
+    }
+    if (window.keyboard.holdT && afterimagePass && afterimagePass.uniforms) {
+        afterimagePass.enabled = true;
+        afterimagePass.uniforms['damp'].value = 0.94 - 0.12 * a;
+    }
+    if (window.keyboard.holdY && vignettePass && vignettePass.uniforms) {
+        vignettePass.enabled = true;
+        vignettePass.uniforms['offset'].value = 1.2;
+        vignettePass.uniforms['darkness'].value = 1.0 + 0.7 * a;
+    }
+    if (window.keyboard.holdU && halftonePass && halftonePass.uniforms) {
+        halftonePass.enabled = true;
+        // if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
+        // if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.2 + 2.8 * a;
+        syncHalftoneGUI();
+    }
+    if (window.keyboard.holdI && filmPass && filmPass.uniforms) {
+        filmPass.enabled = true;
+        filmPass.uniforms['nIntensity'].value = 0.1 + 0.9 * a;
+        filmPass.uniforms['sIntensity'].value = 0.05 + 0.35 * a;
+        filmPass.uniforms['sCount'].value = 1024 + Math.floor(4096 * a);
+        filmPass.uniforms['grayscale'].value = false;
+    }
+    if (window.keyboard.holdO && hueSatPass && hueSatPass.uniforms) {
+        hueSatPass.enabled = true;
+        const wobble = 0.08 * Math.sin(audioPhase * 0.6);
+        hueSatPass.uniforms['hue'].value = wobble;
+        hueSatPass.uniforms['saturation'].value = 0.08 * a;
+    }
+    if (window.keyboard.holdBackslash) {
+        if (rgbShiftPass && rgbShiftPass.uniforms) {
+            rgbShiftPass.enabled = true;
+            const amt = 0.02 + 0.06 * a;
+            rgbShiftPass.uniforms['amount'].value = amt;
+            rgbShiftPass.uniforms.amount.value = amt;
+            rgbShiftPass.uniforms['angle'].value = 0.2 + 0.8 * Math.sin(audioPhase * 0.4);
+        }
+        if (dotPass && dotPass.uniforms) {
+            dotPass.enabled = true;
+            dotPass.uniforms['angle'].value = (Math.PI / 6) * (1 + Math.sin(audioPhase * 1.3));
+            dotPass.uniforms['scale'].value = 0.5 + 0.5 * (1 - a);
+        }
+        if (halftonePass && halftonePass.uniforms) {
+            halftonePass.enabled = true;
+            if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
+            if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.6 + 1.8 * a;
+        }
+    }
+}
+
+function applyPaletteToggles() {
+    if (!hueSatPass || !hueSatPass.uniforms) return;
+    const active = window.keyboard.paletteActive ? Array.from(window.keyboard.paletteActive) : [];
+    if (active.length === 0) {
+        // If palette UI is driving hue/sat, keep it enabled
+        const ps = window.paletteState || { hue: 0, saturation: 0, hsvMode: false };
+        const uiActive = Math.abs(ps.hue) > 1e-4 || Math.abs(ps.saturation) > 1e-4 || ps.hsvMode;
+        if (uiActive) {
+            hueSatPass.enabled = true;
+            const satMul = ps.hsvMode ? 1.35 : 1.0;
+            hueSatPass.uniforms['hue'].value = ps.hue;
+            hueSatPass.uniforms['saturation'].value = ps.saturation * satMul;
+            return;
+        } else {
+            hueSatPass.enabled = false;
+            // reset to neutral when disabled
+            hueSatPass.uniforms['hue'].value = 0.0;
+            hueSatPass.uniforms['saturation'].value = 0.0;
+            return;
+        }
+    }
+    let hue = 0.0;
+    let sat = 0.0;
+    for (let k of active) {
+        const spec = window.paletteMap[k];
+        if (!spec) continue;
+        const baseJitter = (_randFromSeed(spec.seed) - 0.5) * 0.12; // +/-0.06 jitter
+        const timeJitter = 0.02 * Math.sin(audioPhase * (0.5 + 0.07 * spec.seed));
+        hue += (spec.h + baseJitter + timeJitter);
+        // small audio influence on saturation
+        const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.0;
+        sat += (spec.s + 0.15 * a);
+    }
+    hue /= active.length;
+    sat /= active.length;
+    hue = Math.max(-1.0, Math.min(1.0, hue));
+    sat = Math.max(-1.0, Math.min(1.0, sat));
+    hueSatPass.enabled = true;
+    hueSatPass.uniforms['hue'].value = hue;
+    hueSatPass.uniforms['saturation'].value = sat;
+    // light RGB shift blend to emphasize palette
+    if (rgbShiftPass && rgbShiftPass.uniforms) {
+        const add = Math.min(0.02, Math.abs(sat) * 0.02);
+        const curr = rgbShiftPass.uniforms['amount'].value;
+        rgbShiftPass.uniforms['amount'].value = Math.min(0.2, curr + add);
+        rgbShiftPass.uniforms.amount.value = Math.min(0.2, curr + add);
+    }
+}
+
+// removed halftone scatter helpers and blend cycling per latest request
+
+function normalizeKey(e) {
+    const raw = (e.key || '').toLowerCase();
+    if (raw && raw !== 'dead') return raw;
+    const code = e.code || '';
+    switch (code) {
+        case 'BracketLeft': return '[';
+        case 'BracketRight': return ']';
+        case 'Backslash': return '\\';
+        default: return raw;
+    }
+}
+
+// Small effect pulses (tween helpers)
+function halftonePulse(targetRadius = 2.5, _ignored = 0.0, upMs = 300, downMs = 300, delayMs = 0) {
+    if (!halftonePass || !halftonePass.uniforms) return;
+    const hasR = !!halftonePass.uniforms['radius'];
+    if (!hasR) return;
+    halftonePass.enabled = true;
+    const start = { r: halftonePass.uniforms['radius'].value };
+    const peak = { r: targetRadius };
+    const back = { r: start.r };
+    const doDown = () => new TWEEN.Tween(peak).to(back, downMs).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => {
+        halftonePass.uniforms['radius'].value = peak.r;
+    }).start();
+    setTimeout(() => {
+        new TWEEN.Tween(start).to(peak, upMs).easing(TWEEN.Easing.Quadratic.Out).onUpdate(() => {
+            halftonePass.uniforms['radius'].value = start.r;
+        }).onComplete(doDown).start();
+    }, Math.max(0, delayMs));
+}
+
+function dotPulse(angleTarget = Math.PI / 3, scaleTarget = 0.5, upMs = 250, downMs = 250, delayMs = 0) {
+    if (!dotColorPass || !dotColorPass.uniforms) return;
+    dotColorPass.enabled = true;
+    const start = {
+        a: dotColorPass.uniforms['angle'].value,
+        s: dotColorPass.uniforms['scale'].value
+    };
+    const peak = { a: angleTarget, s: scaleTarget };
+    const back = { a: start.a, s: start.s };
+    const doDown = () => new TWEEN.Tween(peak).to(back, downMs).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => {
+        dotColorPass.uniforms['angle'].value = peak.a;
+        dotColorPass.uniforms['scale'].value = peak.s;
+    }).start();
+    setTimeout(() => {
+        new TWEEN.Tween(start).to(peak, upMs).easing(TWEEN.Easing.Quadratic.Out).onUpdate(() => {
+            dotColorPass.uniforms['angle'].value = start.a;
+            dotColorPass.uniforms['scale'].value = start.s;
+        }).onComplete(doDown).start();
+    }, Math.max(0, delayMs));
+}
+
+function filmPulse(nIntensity = 0.45, sIntensity = 0.1, sCount = 2400, holdMs = 200) {
+    if (!filmPass || !filmPass.uniforms) return;
+    filmPass.enabled = true;
+    const n0 = filmPass.uniforms['nIntensity'].value;
+    const s0 = filmPass.uniforms['sIntensity'].value;
+    const c0 = filmPass.uniforms['sCount'].value;
+    filmPass.uniforms['nIntensity'].value = nIntensity;
+    filmPass.uniforms['sIntensity'].value = sIntensity;
+    filmPass.uniforms['sCount'].value = sCount;
+    setTimeout(() => {
+        filmPass.uniforms['nIntensity'].value = n0;
+        filmPass.uniforms['sIntensity'].value = s0;
+        filmPass.uniforms['sCount'].value = c0;
+    }, Math.max(0, holdMs));
+}
+
+function showHelpModal() {
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+        position: 'fixed', left: '0', top: '0', right: '0', bottom: '0',
+        background: 'rgba(0,0,0,0.45)', zIndex: '10020', display: 'flex',
+        alignItems: 'center', justifyContent: 'center'
+    });
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+        background: '#fff', color: '#222', padding: '16px 18px', borderRadius: '8px',
+        minWidth: '280px', maxWidth: '520px', boxShadow: '0 8px 22px rgba(0,0,0,0.25)'
+    });
+    panel.innerHTML = (
+        '<div style="font-weight:600;margin-bottom:8px;">Controls</div>'+
+        '<div style="font-size:13px;line-height:1.45">'+
+        '<div><b>Q</b> — Halftone (hold, audio-reactive)</div>'+
+        '<div><b>W</b> — Film grain (hold, audio-reactive)</div>'+
+        '<div style="margin-top:6px"><b>A</b> — Toggle Halftone</div>'+
+        '<div><b>S</b> — Toggle Film</div>'+
+        '<div><b>D</b> — Toggle RGB Shift</div>'+
+        '<div><b>F</b> — Toggle DotScreen</div>'+
+        '<div><b>G</b> — Toggle Motion Blur (Afterimage)</div>'+
+        '<div><b>H</b> — Toggle Bokeh</div>'+
+        '<div style="margin-top:6px">Audio-reactivity affects Q/W intensity when enabled (🎵).</div>'+
+        '</div>'
+    );
+    const close = document.createElement('button');
+    close.textContent = 'Close';
+    Object.assign(close.style, { marginTop: '10px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #ddd', cursor: 'pointer' });
+    close.addEventListener('click', () => document.body.removeChild(overlay));
+    panel.appendChild(close);
+    overlay.appendChild(panel);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) document.body.removeChild(overlay); });
+    document.body.appendChild(overlay);
+}
+
+function sendEnterKey() {
+    const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    try {
+        document.activeElement && document.activeElement.dispatchEvent(new KeyboardEvent('keydown', opts));
+        document.activeElement && document.activeElement.dispatchEvent(new KeyboardEvent('keyup', opts));
+        // Fallback: try document
+        document.dispatchEvent(new KeyboardEvent('keydown', opts));
+        document.dispatchEvent(new KeyboardEvent('keyup', opts));
+        // Last resort: click a visible button labeled OK/Enter
+        const btn = Array.from(document.querySelectorAll('button')).find(b => /^(ok|enter|confirm|start)$/i.test(b.textContent || ''));
+        if (btn) btn.click();
+    } catch(e) { /* noop */ }
+}
+
+function sendCanvasClick() {
+    try {
+        const el = (renderer && renderer.domElement) ? renderer.domElement : document.body;
+        if (!el) return;
+        const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const evtInit = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window };
+        // el.dispatchEvent(new PointerEvent('pointerdown', evtInit));
+        el.dispatchEvent(new MouseEvent('mousedown', evtInit));
+        if (el.focus) try { el.focus(); } catch(e){}
+        el.dispatchEvent(new PointerEvent('pointerup', evtInit));
+        el.dispatchEvent(new MouseEvent('mouseup', evtInit));
+        el.dispatchEvent(new MouseEvent('click', evtInit));
+    } catch(e) { /* noop */ }
+}
+
+function showPalettePanel() {
+    try {
+        const existing = document.querySelector('#palette-panel');
+        if (existing) { existing.remove(); }
+        const panel = document.createElement('div');
+        panel.id = 'palette-panel';
+        Object.assign(panel.style, {
+            position: 'fixed', top: '40px', left: '8px', zIndex: '10020',
+            background: '#fff', color: '#222', padding: '10px 12px', border: '1px solid #ddd',
+            borderRadius: '8px', boxShadow: '0 8px 22px rgba(0,0,0,0.18)', width: '220px'
+        });
+        panel.innerHTML = `
+            <div style="font-weight:600;margin-bottom:6px">Palette</div>
+            <label style="display:block;font-size:12px;margin:6px 0 2px">Hue (-1..1)</label>
+            <input id="pal-hue" type="range" min="-1" max="1" step="0.01" value="${window.paletteState.hue}">
+            <label style="display:block;font-size:12px;margin:6px 0 2px">Saturation (-1..1)</label>
+            <input id="pal-sat" type="range" min="-1" max="1" step="0.01" value="${window.paletteState.saturation}">
+            <label style="display:block;font-size:12px;margin:6px 0 2px">Brightness (-1..1)</label>
+            <input id="pal-bri" type="range" min="-1" max="1" step="0.01" value="${window.paletteState.brightness}">
+            <label style="display:block;font-size:12px;margin:6px 0 2px">Contrast (-1..1)</label>
+            <input id="pal-con" type="range" min="-1" max="1" step="0.01" value="${window.paletteState.contrast}">
+            <div style="margin-top:6px;font-size:12px">
+              <label><input id="pal-hsv" type="checkbox" ${window.paletteState.hsvMode ? 'checked' : ''}> HSV mode (stronger sat)</label>
+            </div>
+            <label style="display:block;font-size:12px;margin:6px 0 2px">RGB Shift boost (0..0.3)</label>
+            <input id="pal-rs" type="range" min="0" max="0.3" step="0.005" value="${window.paletteState.rsBoost}">
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+                <button id="pal-close" style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;cursor:pointer;background:#f7f7f7">Close</button>
+            </div>
+        `;
+        document.body.appendChild(panel);
+        const hue = panel.querySelector('#pal-hue');
+        const sat = panel.querySelector('#pal-sat');
+        const bri = panel.querySelector('#pal-bri');
+        const con = panel.querySelector('#pal-con');
+        const hsv = panel.querySelector('#pal-hsv');
+        const rsb = panel.querySelector('#pal-rs');
+        const apply = () => {
+            window.paletteState.hue = parseFloat(hue.value);
+            window.paletteState.saturation = parseFloat(sat.value);
+            window.paletteState.brightness = parseFloat(bri.value);
+            window.paletteState.contrast = parseFloat(con.value);
+            window.paletteState.hsvMode = !!hsv.checked;
+            window.paletteState.rsBoost = parseFloat(rsb.value);
+            applyPaletteState();
+        };
+        [hue, sat, bri, con, hsv, rsb].forEach(el => el.addEventListener('input', apply));
+        panel.querySelector('#pal-close').addEventListener('click', () => panel.remove());
+    } catch(e) { console.error('palette UI failed', e); }
+}
+
+function applyPaletteState() {
+    try {
+        if (hueSatPass && hueSatPass.uniforms) {
+            hueSatPass.enabled = true;
+            // HSV mode exaggerates saturation a bit
+            const satMul = window.paletteState.hsvMode ? 1.35 : 1.0;
+            hueSatPass.uniforms['hue'].value = window.paletteState.hue;
+            hueSatPass.uniforms['saturation'].value = window.paletteState.saturation * satMul;
+        }
+        if (brightnessPass && brightnessPass.uniforms) {
+            brightnessPass.enabled = true;
+            brightnessPass.uniforms['brightness'].value = window.paletteState.brightness;
+            brightnessPass.uniforms['contrast'].value = window.paletteState.contrast;
+        }
+        if (rgbShiftPass && rgbShiftPass.uniforms) {
+            const current = rgbShiftPass.uniforms['amount'].value;
+            const boosted = Math.min(0.8, current + window.paletteState.rsBoost);
+            rgbShiftPass.uniforms['amount'].value = boosted;
+            if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = boosted;
+        }
+    } catch(e) { console.error('applyPaletteState failed', e); }
+}
+
+function randomizeAllParams() {
+    const rIn = (a, b) => a + Math.random() * (b - a);
+    const rBool = (p = 0.5) => Math.random() < p;
+    try {
+        // Palette (Hue/Sat/Bri/Con + optional HSV)
+        window.paletteState.hue = rIn(-1.0, 1.0);
+        window.paletteState.saturation = rIn(-1.0, 1.0);
+        window.paletteState.brightness = rIn(-0.4, 0.4);
+        window.paletteState.contrast = rIn(-0.4, 0.4);
+        window.paletteState.hsvMode = rBool(0.5);
+        window.paletteState.rsBoost = rIn(0.0, 0.25);
+        applyPaletteState();
+        // Update palette UI sliders if open
+        const ph = document.querySelector('#pal-hue');
+        const ps = document.querySelector('#pal-sat');
+        const pb = document.querySelector('#pal-bri');
+        const pc = document.querySelector('#pal-con');
+        const pm = document.querySelector('#pal-hsv');
+        const pr = document.querySelector('#pal-rs');
+        if (ph) ph.value = String(window.paletteState.hue);
+        if (ps) ps.value = String(window.paletteState.saturation);
+        if (pb) pb.value = String(window.paletteState.brightness);
+        if (pc) pc.value = String(window.paletteState.contrast);
+        if (pm) pm.checked = !!window.paletteState.hsvMode;
+        if (pr) pr.value = String(window.paletteState.rsBoost);
+
+        // RGB Shift
+        if (rgbShiftPass && rgbShiftPass.uniforms) {
+            rgbShiftPass.enabled = true;
+            const amt = rIn(0.0, 0.35);
+            rgbShiftPass.uniforms['amount'].value = amt;
+            if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = amt;
+            rgbShiftPass.uniforms['angle'].value = rIn(0, Math.PI * 2);
+        }
+        // DotScreen
+        if (dotPass && dotPass.uniforms) {
+            dotPass.enabled = rBool(0.7);
+            dotPass.uniforms['angle'].value = rIn(0, Math.PI);
+            dotPass.uniforms['scale'].value = rIn(0.2, 1.0);
+        }
+        // Halftone
+        if (halftonePass && halftonePass.uniforms) {
+            halftonePass.enabled = true;
+            if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = rIn(0.2, 3.0);
+            setHalftoneScatter(rIn(0.0, 0.1));
+
+        }
+        // Film
+        if (filmPass && filmPass.uniforms) {
+            filmPass.enabled = rBool(0.7);
+            filmPass.uniforms['nIntensity'].value = rIn(0.0, 0.8);
+            filmPass.uniforms['sIntensity'].value = rIn(0.0, 0.2);
+            filmPass.uniforms['sCount'].value = Math.floor(rIn(512, 4096));
+            filmPass.uniforms['grayscale'].value = false;
+        }
+        // Afterimage
+        if (afterimagePass && afterimagePass.uniforms) {
+            afterimagePass.enabled = rBool(0.8);
+            afterimagePass.uniforms['damp'].value = rIn(0.7, 0.97);
+        }
+        // Vignette
+        if (vignettePass && vignettePass.uniforms) {
+            vignettePass.enabled = rBool(0.6);
+            vignettePass.uniforms['offset'].value = rIn(1.0, 1.6);
+            vignettePass.uniforms['darkness'].value = rIn(0.8, 2.0);
+        }
+        // SAO
+        if (saoPass && saoPass.params) {
+            saoPass.enabled = rBool(0.5);
+            saoPass.params.saoBias = rIn(0.0, 1.0);
+            saoPass.params.saoIntensity = rIn(0.0, 0.05);
+            saoPass.params.saoScale = rIn(0.5, 2.0);
+            saoPass.params.saoKernelRadius = Math.floor(rIn(8, 32));
+            saoPass.params.saoMinResolution = 0;
+        }
+        // Bloom (toggle only; underlying params set at init)
+        if (bloomPass) {
+            bloomPass.enabled = rBool(0.5);
+        }
+        // Background
+        if (rBool(0.6)) {
+            applyBackground(2); // random bg
+        }
+        // Bokeh: randomize only if currently enabled; do not force enable to respect bumper-only rule
+        try {
+            if (effectController && effectController.enabled) {
+                const prev = { enabled: effectController.enabled };
+                effectController.fstop = rIn(0.5, 5.0);
+                effectController.maxblur = rIn(0.0, 5.0);
+                effectController.focalDepth = rIn(10.0, 100.0);
+                applyBokehToShaderAndGUI();
+                effectController.enabled = prev.enabled;
+                if (bokehPass) bokehPass.enabled = prev.enabled;
+            }
+        } catch(e){}
+    } catch(e) { console.error('randomizeAllParams failed', e); }
 }
 
 // Hide/show all UI controls (buttons, GUI panels, inputs, action bar)
@@ -570,11 +2057,61 @@ function setControlsVisible(visible) {
         }
         // lil-gui panels
         document.querySelectorAll('.lil-gui').forEach(el => el.style.display = visible ? '' : 'none');
+        // Hide/show halftone GUI specifically
+        if (halftoneGUI) {
+            halftoneGUI.domElement.style.display = visible ? '' : 'none';
+        }
         // Inputs (sliders)
         document.querySelectorAll('input[type="range"]').forEach(el => el.style.display = visible ? '' : 'none');
         // Bottom action bar
         const actionBar = document.querySelector('.action-bar');
         if (actionBar) actionBar.style.display = visible ? '' : 'none';
+
+        // Canvas container adjustments so no top gap remains
+        const cc = document.querySelector('.canvas-container');
+        if (cc) {
+            if (!visible) {
+                // Hiding UI: stretch canvas container to full viewport
+                cc.style.setProperty('position', 'fixed', 'important');
+                cc.style.setProperty('top', '0', 'important');
+                cc.style.setProperty('left', '0', 'important');
+                cc.style.setProperty('right', '0', 'important');
+                cc.style.setProperty('bottom', '0', 'important');
+                cc.style.setProperty('height', '100vh', 'important');
+                cc.style.setProperty('width', '100%', 'important');
+                cc.style.setProperty('margin', '0', 'important');
+                cc.style.setProperty('padding', '0', 'important');
+                document.documentElement.style.setProperty('margin', '0', 'important');
+                document.documentElement.style.setProperty('padding', '0', 'important');
+                document.body.style.setProperty('margin', '0', 'important');
+                document.body.style.setProperty('padding', '0', 'important');
+                document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+                document.body.style.setProperty('overflow', 'hidden', 'important');
+                try { window.scrollTo(0, 0); } catch(e){}
+            } else {
+                // Showing UI: restore minimal constraints
+                cc.style.setProperty('position', 'relative', 'important');
+                cc.style.setProperty('height', '100%', 'important');
+                cc.style.removeProperty('top');
+                cc.style.removeProperty('left');
+                cc.style.removeProperty('right');
+                cc.style.removeProperty('bottom');
+                cc.style.removeProperty('width');
+                cc.style.removeProperty('margin');
+                cc.style.removeProperty('padding');
+                document.documentElement.style.removeProperty('overflow');
+                document.body.style.removeProperty('overflow');
+                document.documentElement.style.removeProperty('margin');
+                document.documentElement.style.removeProperty('padding');
+                document.body.style.removeProperty('margin');
+                document.body.style.removeProperty('padding');
+                // Enforce full-height chain and resize renderer/composer
+                try { enforceCanvasFullHeight(); } catch(e){}
+                try { onCanvasResize(); } catch(e){}
+                try { window.dispatchEvent(new Event('resize')); } catch(e){}
+            }
+        }
+
     } catch(e) {
         console.error(e);
     }
@@ -582,10 +2119,16 @@ function setControlsVisible(visible) {
 
 function toggleAllUI() {
     const hide = !(window.uiHidden === true);
+    // Only hide/show action bars
     // Header
     setHeaderVisible(!hide);
     // Other controls
     setControlsVisible(!hide);
+    try {
+        document.querySelectorAll('.action-bar, .actions-bar').forEach(el => {
+            if (el) el.style.display = hide ? 'none' : '';
+        });
+    } catch(e) { console.error(e); }
     // Update toggle button text
     const toggleBtn = window.topControls && window.topControls.find(el => el && (el.textContent === 'hide' || el.textContent === 'show'));
     if (toggleBtn) {
@@ -656,7 +2199,7 @@ function showAudioOverlay() {
     cancel.addEventListener('click', () => document.body.removeChild(overlay));
 
     const enable = document.createElement('button');
-    enable.textContent = 'Enable';
+    enable.textContent = 'OK';
     enable.style.padding = '6px 10px';
     enable.style.border = '1px solid #2e7d32';
     enable.style.borderRadius = '6px';
@@ -665,6 +2208,7 @@ function showAudioOverlay() {
     enable.addEventListener('click', async () => {
         try {
             await initAudio();
+            document.removeEventListener('keydown', handleEnterKey);
             document.body.removeChild(overlay);
         } catch (e) {
             console.error('Audio init failed:', e);
@@ -677,6 +2221,20 @@ function showAudioOverlay() {
     panel.appendChild(row);
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
+
+    // Focus OK button and allow pressing Enter to confirm
+    try { enable.focus(); } catch(e){}
+    function handleEnterKey(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            enable.click();
+        }
+    }
+    document.addEventListener('keydown', handleEnterKey);
+    // Ensure cleanup on cancel
+    cancel.addEventListener('click', () => {
+        document.removeEventListener('keydown', handleEnterKey);
+    });
 }
 async function initAudio() {
     if (audioInitialized) return;
@@ -744,12 +2302,20 @@ function init() {
 	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
-	renderer.setClearColor( 0xffffff, 1 );
+renderer.setClearAlpha(1);
+renderer.setClearColor(0xffffff, 1);
 	canvasContainer.appendChild(renderer.domElement);
+
+	// Auto-focus canvas by simulating a click shortly after load
+	try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
 
 	// Setup post-processing composer
 	composer = new EffectComposer(renderer);
-	const renderPass = new RenderPass(scene, camera);
+	renderPass = new RenderPass(scene, camera);
+	// Attach params to renderPass for blending/blendingMode control via keyboard (key '4')
+	renderPass.params = renderPass.params || {};
+	if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
+	if (typeof renderPass.params.blendingMode !== 'number') renderPass.params.blendingMode = 1;
 	composer.addPass(renderPass);
 
 	// Setup bokeh depth shader material
@@ -805,17 +2371,31 @@ function init() {
 
 	// Halftone pass (dots), initially disabled
 	halftonePass = new HalftonePass(window.innerWidth, window.innerHeight, {
-		radius: 0.0,
+		radius: 12.0,
 		scatter: 0.0,
 		shape: 1,
-		blending: 1.0,
-		greyscale: false
+		greyscale: false,
+
 	});
+    halftonePass.material = new ShaderMaterial( {
+        blending: 0.5,
+        blendMode: MultiplyBlending
+    } );
+    halftonePass.uniforms['greyscale'].value = false;
+
 	halftonePass.enabled = false;
 
 	// Dot screen pass, initially disabled
-	dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 1.0);
+	dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 2.0);
 	dotPass.enabled = false;
+
+	// Color-preserving Dot pass (disabled by default)
+	dotColorPass = new ShaderPass(DotColorShader);
+	dotColorPass.enabled = false;
+
+	// Afterimage (motion blur) pass, initially disabled; default damp 0.94
+	afterimagePass = new AfterimagePass(0.94);
+	afterimagePass.enabled = false;
 
 	// Initialize bokeh render targets
 	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
@@ -826,13 +2406,67 @@ function init() {
 	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
 
 	composer.addPass(rgbShiftPass);
+	// Hue/Saturation pass for palette toggles
+	hueSatPass = new ShaderPass(HueSaturationShader);
+	hueSatPass.enabled = false;
+	composer.addPass(hueSatPass);
+	// Brightness/Contrast pass for final grading
+	brightnessPass = new ShaderPass(BrightnessContrastShader);
+	brightnessPass.enabled = false;
+	if (brightnessPass.uniforms) {
+		brightnessPass.uniforms['brightness'].value = 0.0;
+		brightnessPass.uniforms['contrast'].value = 0.0;
+	}
+	composer.addPass(brightnessPass);
+	// Mirror pass (screen-space flips)
+	mirrorPass = new ShaderPass(MirrorAxisShader);
+	mirrorPass.enabled = false;
+	composer.addPass(mirrorPass);
+	// Vignette pass (disabled by default)
+	vignettePass = new ShaderPass(VignetteShader);
+	vignettePass.enabled = false;
+	if (vignettePass.uniforms) {
+		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
+		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
+	}
+	composer.addPass(vignettePass);
+
+	// Third-row exclusive passes
+	// Bloom
+	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
+	bloomPass.enabled = false;
+	composer.addPass(bloomPass);
+	// SAO (ambient occlusion)
+	saoPass = new SAOPass(scene, camera, false, true);
+	saoPass.enabled = false;
+	if (saoPass.params) {
+		saoPass.params.saoBias = 0.5;
+		saoPass.params.saoIntensity = 0.015;
+		saoPass.params.saoScale = 1.0;
+		saoPass.params.saoKernelRadius = 16;
+		saoPass.params.saoMinResolution = 0;
+	}
+	composer.addPass(saoPass);
+	// CubeTexture pass (only effective if a cube background exists)
+	cubeTexturePass = new CubeTexturePass(camera, scene);
+	cubeTexturePass.enabled = false;
+	composer.addPass(cubeTexturePass);
 	composer.addPass(filmPass);
 	composer.addPass(halftonePass);
-	composer.addPass(dotPass);
+	composer.addPass(dotColorPass);
+	composer.addPass(afterimagePass);
 	composer.addPass(bokehPass);
 
 	// Setup GUI controls for bokeh effect
 	setupBokehGUI();
+
+	// Setup GUI controls for halftone blending
+	setupHalftoneGUI();
+
+	// Create loading text element
+
+	// Apply initial background according to bgMode
+	try { applyBackground(window.bgMode || 1); } catch(e){}
 
 	canvas = document.querySelector('canvas');
 	canvas.setAttribute('tabindex', '0');
@@ -877,6 +2511,7 @@ function init() {
 
 	// Audio UI (small button top-left)
 	createAudioUI();
+	setupKeyboardControls();
 
     // Helper globals
     window.headerHidden = true;
@@ -955,9 +2590,9 @@ function handleGamepadInput() {
         // console.log('Gamepads detected:', gamepads ? gamepads.length : 0, gamepad ? gamepad.id : 'none');
         const activeGamepad = Array.from(gamepads).find(gp => gp);
         if (activeGamepad) {
-            console.log("Gamepad detected22:", activeGamepad.id);
+            // console.log("Gamepad detected 2:", activeGamepad.id);
         } else {
-            console.log("No gamepad detected222");
+            // console.log("No gamepad detected 2");
         }
 
         if (gamepad) {
@@ -1009,54 +2644,111 @@ function handleGamepadInput() {
                 rotationCenter.copy(store.state.selectedObject.position);
             }
 
-            // Left stick: rotate around Y axis + zoom in/out
+            // Left stick: translate camera (strafe and forward/back) + map to color palette uniquely by (lx, ly)
             if (Math.abs(window.gamepadState.leftStickX) > 0.01 || Math.abs(window.gamepadState.leftStickY) > 0.01) {
-                // Left/right movement (leftStickX) - rotate around Y axis (yaw)
-            if (Math.abs(window.gamepadState.leftStickX) > 0.01) {
-                    const rotationAmount = window.gamepadState.leftStickX * rotateSpeed * 0.02 * getAudioModulation();
-                    if (controls.enabled) {
-                        controls.rotateLeft(rotationAmount);
-                    } else if (mapControls.enabled) {
-                        mapControls.rotateLeft(rotationAmount);
-                    }
+
+
+                const forward = new Vector3();
+                camera.getWorldDirection(forward);
+                forward.y = 0; // horizontal plane for consistent motion
+                forward.normalize();
+                const right = new Vector3(-forward.z, 0, forward.x);
+                const moveMod = getAudioModulation();
+                const lsSpeed = moveSpeed / 80;
+                const lx = window.gamepadState.leftStickX;
+                const ly = window.gamepadState.leftStickY;
+
+
+                console.log('🎮 GAMEPAD ACTIVE - Left:', params.rsy, window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2));
+
+                camera.position.addScaledVector(right, -lx * lsSpeed * moveMod);
+                camera.position.addScaledVector(forward, ly * lsSpeed * moveMod);
+
+                // Unique color mapping from (lx, ly): hue from angle, saturation from radius, with audio wobble
+                const r = Math.min(1, Math.sqrt(lx * lx + ly * ly));
+                const ang = Math.atan2(ly, lx);
+                let hue = ang / Math.PI; // -1..1
+                const audioAmt = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.0;
+                // wobble ensures distinctiveness across the disc
+                const wobble = Math.sin((lx * 13.37 + ly * 9.91) + audioPhase * 0.4) * 0.18 * r;
+                hue = Math.max(-1.0, Math.min(1.0, hue + wobble));
+                let sat = Math.max(0.0, Math.min(1.0, r * (0.85 + 0.25 * audioAmt)));
+                hueSatPass.enabled = true;
+                if (hueSatPass && hueSatPass.uniforms) {
+                    hueSatPass.enabled = true;
+                    hueSatPass.uniforms['hue'].value = hue;
+                    hueSatPass.uniforms['saturation'].value = sat;
                 }
 
-                // Up/down movement (leftStickY) - zoom in/out
-                if (Math.abs(window.gamepadState.leftStickY) > 0.01) {
-                    const amount = Math.abs(window.gamepadState.leftStickY) * 0.02 * getAudioModulation();
-                    const zoomFactor = 1 + amount;
-                    if (window.gamepadState.leftStickY > 0) {
-                        // Down on stick = zoom out (away from object)
-                        if (controls.enabled) {
-                            controls.dollyOut(zoomFactor);
-                        } else if (mapControls.enabled) {
-                            mapControls.dollyOut(zoomFactor);
-                        }
-                    } else {
-                        // Up on stick = zoom in (towards object)
-                        if (controls.enabled) {
-                            controls.dollyIn(zoomFactor);
-                        } else if (mapControls.enabled) {
-                            mapControls.dollyIn(zoomFactor);
-                        }
+
+
+
+
+                halftonePass.enabled = true;
+                if (halftonePass && halftonePass.uniforms) {
+                    halftonePass.enabled = true;
+                    halftonePass.uniforms['blendingMode'].value = currentCombo.shaderMode;
+                    halftonePass.uniforms['blending'].value = ly;
+
+                    // Control radius via left stick X (lx)
+                    const radiusValue = Math.max(1, Math.abs(lx) * 20.0); // 1 to 20.0 based on |lx|
+                    halftonePass.uniforms['radius'].value = 12*LX;
+syncHalftoneGUI()
+                    // Update GUI radius controller to reflect the change
+                    if (halftoneGUI && halftoneGUI.controllers) {
+                        halftoneGUI.controllers.forEach(controller => {
+                            if (controller.property === 'radius') {
+                                controller.setValue(radiusValue);
+                            }
+                        });
                     }
+                }
+                if (rgbShiftPass && rgbShiftPass.uniforms) {
+					const amt = 0.02 + r * 0.06;
+                    rgbShiftPass.enabled = true;
+					// base amount
+					rgbShiftPass.uniforms['amount'].value = amt;
+					if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = amt;
+					// add huge shift near edge without altering previous logic
+					const huge = Math.max(0, r - 0.7) * 0.6; // ramps up strongly from 0.7..1.0
+					const newAmt = Math.min(0.6, (rgbShiftPass.uniforms['amount'].value || amt) + huge);
+					rgbShiftPass.uniforms['amount'].value = newAmt;
+					if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = newAmt;
+                    rgbShiftPass.uniforms['angle'].value = ang;
                 }
             }
 
-            // Right stick: pan camera left/right (X axis only)
-            if (Math.abs(window.gamepadState.rightStickX) > 0.01) {
-                // Move camera horizontally (no forward/back)
-                const forward = new Vector3();
-                camera.getWorldDirection(forward);
-                forward.y = 0; // Keep movement horizontal
-                forward.normalize();
+            // Right stick: hold R3 to orbit yaw/pitch; otherwise strafe/forward
+            if (Math.abs(window.gamepadState.rightStickX) > 0.01 || Math.abs(window.gamepadState.rightStickY) > 0.01) {
+                if (window.gamepadState.buttonR3) {
+                    // Custom orbit around controls.target for more predictable motion
+                    const yaw = window.gamepadState.rightStickX * rotateSpeed * 0.03 * getAudioModulation();
+                    const pitch = -window.gamepadState.rightStickY * rotateSpeed * 0.03 * getAudioModulation();
+                    const target = (controls && controls.target) ? controls.target.clone() : new Vector3(0,0,0);
+                    const offset = camera.position.clone().sub(target);
+                    // Yaw around world up
+                    const qYaw = new Quaternion().setFromAxisAngle(new Vector3(0,1,0), yaw);
+                    offset.applyQuaternion(qYaw);
+                    // Pitch around right axis derived from current offset
+                    const rightAxis = new Vector3().crossVectors(new Vector3(0,1,0), offset).normalize();
+                    if (rightAxis.lengthSq() > 1e-6) {
+                        const qPitch = new Quaternion().setFromAxisAngle(rightAxis, pitch);
+                        offset.applyQuaternion(qPitch);
+                    }
+                    camera.position.copy(target.clone().add(offset));
+                    camera.lookAt(target);
+                } else {
+                    // Move camera horizontally and forward/back
+                    const forward = new Vector3();
+                    camera.getWorldDirection(forward);
+                    forward.y = 0; // Keep movement horizontal
+                    forward.normalize();
+                    const right = new Vector3(-forward.z, 0, forward.x);
+                    const moveMod = getAudioModulation();
+                    camera.position.addScaledVector(right, -window.gamepadState.rightStickX * moveSpeed/10 * moveMod);
+                    camera.position.addScaledVector(forward, window.gamepadState.rightStickY * moveSpeed/10 * moveMod);
 
-                const right = new Vector3(-forward.z, 0, forward.x);
-
-                const moveMod = getAudioModulation();
-                camera.position.addScaledVector(right, -window.gamepadState.rightStickX * moveSpeed/10 * moveMod);
-				camera.position.addScaledVector(forward, window.gamepadState.rightStickY * moveSpeed/10 * moveMod);
-
+                }
             }
 
             // Keep old virtual cursor code for compatibility (can be removed if not needed)
@@ -1108,20 +2800,13 @@ function handleGamepadInput() {
         virtualCursor.x += window.gamepadState.leftStickX * virtualCursorSpeed;
         virtualCursor.y += window.gamepadState.leftStickY * virtualCursorSpeed;
 
-        // Debug logging - remove this after testing
+
         // console.log('🎮 GAMEPAD ACTIVE - Left:', window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2), 'Right:', window.gamepadState.rightStickX.toFixed(2), window.gamepadState.rightStickY.toFixed(2));
 
-        // Visual feedback - temporarily change renderer clear color when gamepad is active
-        if (Math.abs(window.gamepadState.leftStickX) > 0.1 || Math.abs(window.gamepadState.leftStickY) > 0.1 ||
-            Math.abs(window.gamepadState.rightStickX) > 0.1 || Math.abs(window.gamepadState.rightStickY) > 0.1) {
-            renderer.setClearColor(0xffffff, 1); // Green tint when moving
-        } else {
-            renderer.setClearColor(0xffffff, 1); // Green tint when moving
-        }
     } else {
-        console.log('No gamepad detected');
+        // console.log('No gamepad detected');
         // Reset renderer clear color when no gamepad
-            renderer.setClearColor(0xffffff, 1); // Green tint when moving
+            // renderer.setClearColor(0x000000, 1); // Green tint when moving
     }
     } catch (error) {
         // Silently handle gamepad errors to prevent console spam
@@ -1133,7 +2818,7 @@ function handleGamepadInput() {
 function handleGamepadButtonPresses(gamepad) {
     if (!gamepad || !gamepad.buttons) return;
 
-    // Button B (Deselect current sculpture)
+    // Button B/Circle (also send Enter key to the page)
     if (window.gamepadState.buttonCircle && !window.gamepadButtonBPressed) {
         window.gamepadButtonBPressed = true;
         if (store.state.selectedSculpture) {
@@ -1141,21 +2826,19 @@ function handleGamepadButtonPresses(gamepad) {
             store.state.selectedObject = null;
             console.log('🎮 Deselected sculpture');
         }
+        // First, synthesize a click on the canvas to ensure focus
+        try { sendCanvasClick(); } catch(e) { console.error('Canvas click synth failed', e); }
+        // Then send an Enter key press to activate focused UI
+        try { sendEnterKey(); } catch(e) { console.error('Enter synth failed', e); }
     }
     if (!window.gamepadState.buttonCircle) {
         window.gamepadButtonBPressed = false;
     }
 
-    // Button X (Toggle wireframe mode)
+    // Button X (Square): Create dashed Hilbert spline lines
     if (window.gamepadState.buttonX && !window.gamepadButtonXPressed) {
         window.gamepadButtonXPressed = true;
-        if (store.state.selectedSculpture && store.state.selectedObject) {
-            const material = store.state.selectedObject.material;
-            if (material) {
-                material.wireframe = !material.wireframe;
-                console.log('🎮 Wireframe:', material.wireframe ? 'ON' : 'OFF');
-            }
-        }
+        try { generateLinesSetA(); } catch(e) { console.error(e); }
     }
     if (!window.gamepadState.buttonX) {
         window.gamepadButtonXPressed = false;
@@ -1210,12 +2893,30 @@ function handleGamepadButtonPresses(gamepad) {
     // Button R3 (Center camera on object)
     if (window.gamepadState.buttonR3 && !window.gamepadButtonR3Pressed) {
         window.gamepadButtonR3Pressed = true;
-        if (store.state.selectedSculpture && store.state.selectedObject) {
-            const objectPos = store.state.selectedObject.position;
-            camera.lookAt(objectPos);
+        const objectPos = new Vector3();
+        let haveTarget = false;
 
-            controls.target.copy(objectPos);
-            mapControls.target.copy(objectPos);
+        // Prefer explicitly selected object (editor mode)
+        if (store.state.selectedObject && typeof store.state.selectedObject.getWorldPosition === 'function') {
+            store.state.selectedObject.getWorldPosition(objectPos);
+            haveTarget = true;
+        } else {
+            // Fallback to current sculpture's mesh (viewer mode)
+            const curr = store.state.currSculpture && store.state.currSculpture.sculpture && store.state.currSculpture.sculpture.mesh;
+            if (curr && typeof curr.getWorldPosition === 'function') {
+                curr.getWorldPosition(objectPos);
+                haveTarget = true;
+            } else if (controls && controls.target) {
+                // Final fallback: current controls target
+                objectPos.copy(controls.target);
+                haveTarget = true;
+            }
+        }
+
+        if (haveTarget) {
+            camera.lookAt(objectPos);
+            if (controls && controls.target) controls.target.copy(objectPos);
+            if (mapControls && mapControls.target) mapControls.target.copy(objectPos);
             console.log('🎮 Camera centered on object');
         }
     }
@@ -1229,6 +2930,7 @@ function handleGamepadButtonPresses(gamepad) {
         window.gamepadButtonHomePressed = true;
         window.audioModulationEnabled = !window.audioModulationEnabled;
         console.log('🎵 Audio modulation:', window.audioModulationEnabled ? 'ENABLED' : 'DISABLED');
+        try { randomizeAllParams(); } catch(e) { console.error(e); }
     }
     if (!homePressed) {
         window.gamepadButtonHomePressed = false;
@@ -1238,13 +2940,188 @@ function handleGamepadButtonPresses(gamepad) {
     const touchPressed = gamepad.buttons[17] ? gamepad.buttons[17].pressed : false;
     if (touchPressed && !window.gamepadButtonTouchPressed) {
         window.gamepadButtonTouchPressed = true;
-        if (window.loadRandomSculpture) {
-            window.loadRandomSculpture();
-        }
+        // Invoke directly so it works outside the editor too
+        loadRandomSculpture();
     }
     if (!touchPressed) {
         window.gamepadButtonTouchPressed = false;
     }
+}
+
+// Lines generation helpers
+function clearGeneratedLines() {
+    try {
+        if (window.generatedLines && window.generatedLines.parent) {
+            window.generatedLines.parent.remove(window.generatedLines);
+            window.generatedLines = null;
+        }
+    } catch(e) {}
+}
+
+function ensureLinesParent() {
+    const parent = (store.state.selectedObject)
+        || (store.state.currSculpture && store.state.currSculpture.sculpture && store.state.currSculpture.sculpture.mesh)
+        || scene;
+    return parent || scene;
+}
+
+function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
+    clearGeneratedLines();
+    const parent = ensureLinesParent();
+    const group = new Group();
+    window.generatedLines = group;
+    parent.add(group);
+
+    // Parameters
+    const recursion = 1;
+    const subdivisions = 5;
+    const lineCount = 4; // reduced ~3x
+    const spread = 0.5;    // spacing between lines
+    const kaleidoscope = true;
+
+    // Generate base Hilbert curve with randomness
+    const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
+    const spline = new CatmullRomCurve3(basePoints);
+    const samples = spline.getPoints(basePoints.length * subdivisions);
+
+    // Add noise and wave offset
+    samples.forEach((p, i) => {
+        const t = i / samples.length;
+        const offset = Math.sin(t * Math.PI * 4) * 0.3 * (params?.rsx ?? 1);
+        p.x += (Math.random() - 0.5) * 2 + offset;
+        p.y += (Math.random() - 0.5) * 2 + offset * (params?.rsy ?? 1);
+        p.z += (Math.random() - 0.5) * 2;
+    });
+
+    // Create base geometry
+    const geometrySpline = new BufferGeometry().setFromPoints(samples);
+    const baseMaterial = new LineDashedMaterial({
+        scale: 2,
+        color: color,
+        dashSize: 1,
+        gapSize: 0.5
+    });
+
+    // Add original line
+    const originalLine = new Line(geometrySpline, baseMaterial);
+    originalLine.computeLineDistances();
+    group.add(originalLine);
+
+    // Clone and style lines
+    for (let i = 1; i < lineCount; i++) {
+        const clone = originalLine.clone();
+        clone.material = baseMaterial.clone();
+
+        // Positioning
+        // const angle = (Math.PI * 2 * i) / lineCount;
+        // clone.position.x = Math.cos(angle) * spread * i;
+        // clone.position.y = Math.sin(angle) * spread * i;
+
+        // Kaleidoscopic mirroring
+        if (kaleidoscope && i % 2 === 0) {
+            clone.scale.x *= -1;
+            clone.scale.y *= -1;
+        }
+
+        // Color shift
+        const hueShift = (i * 30) % 360;
+        clone.material.color.setHSL(hueShift / 360, 1, 0.5);
+
+        group.add(clone);
+    }
+
+}
+
+function generateLinesSetB() {
+    clearGeneratedLines();
+    const parent = ensureLinesParent();
+    const group = new Group();
+    window.generatedLines = group;
+    parent.add(group);
+
+    // Lissajous-style curve set
+    const curves = 1; // reduced ~3x
+    for (let k = 0; k < curves; k++) {
+        const pts = [];
+        const a = 2 + k;
+        const b = 3 + k;
+        const delta = Math.PI / (k + 2);
+        for (let i = 0; i <= 400; i++) {
+            const t = i / 400 * Math.PI * 2;
+            const x = Math.sin(a * t + delta) * 2.5 + k * 0.3;
+            const y = Math.sin(b * t) * 2.5 + k * 0.2;
+            const z = Math.cos((a + b) * t) * 2.5;
+            pts.push(new Vector3(x, y, z));
+        }
+        const g = new BufferGeometry().setFromPoints(pts);
+        const m = new LineDashedMaterial({ color: 0x88ccff, dashSize: 0.6, gapSize: 0.35 });
+        const l = new Line(g, m);
+        l.computeLineDistances();
+        group.add(l);
+    }
+}
+
+// Trail line generator (Hilbert-based with clones and color shifts)
+function generateLinesTrail() {
+    try {
+        const recursion = 1;
+        const subdivisions = 5;
+        const lineCount = 4; // reduced ~3x
+        const spread = 0.5;
+        const kaleidoscope = true;
+        const baseColor = new Color(0xff00ff);
+
+        const parent = ensureLinesParent();
+        if (!window.generatedLines) {
+            window.generatedLines = new Group();
+            parent.add(window.generatedLines);
+        } else if (!window.generatedLines.parent) {
+            parent.add(window.generatedLines);
+        }
+
+        const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
+        const spline = new CatmullRomCurve3(basePoints);
+        const samples = spline.getPoints(basePoints.length * subdivisions);
+
+        const rsx = (typeof params !== 'undefined' && params && params.rsx) ? params.rsx : 1;
+        const rsy = (typeof params !== 'undefined' && params && params.rsy) ? params.rsy : 1;
+        samples.forEach((p, i) => {
+            const t = i / samples.length;
+            const offset = Math.sin(t * Math.PI * 4) * 0.3 * rsx;
+            p.x += (Math.random() - 0.5) * 2 + offset;
+            p.y += (Math.random() - 0.5) * 2 + offset * rsy;
+            p.z += (Math.random() - 0.5) * 2;
+        });
+
+        const geometrySpline = new BufferGeometry().setFromPoints(samples);
+        const baseMaterial = new LineDashedMaterial({
+            scale: 2,
+            color: baseColor,
+            dashSize: 1,
+            gapSize: 0.5,
+            transparent: true,
+            opacity: 1
+        });
+
+        const originalLine = new Line(geometrySpline, baseMaterial);
+        originalLine.computeLineDistances();
+        window.generatedLines.add(originalLine);
+
+        for (let i = 1; i < lineCount; i++) {
+            const clone = originalLine.clone();
+            clone.material = baseMaterial.clone();
+            const angle = (Math.PI * 2 * i) / lineCount;
+            clone.position.x = Math.cos(angle) * spread * i;
+            clone.position.y = Math.sin(angle) * spread * i;
+            if (kaleidoscope && i % 2 === 0) {
+                clone.scale.x *= -1;
+                clone.scale.y *= -1;
+            }
+            const hueShift = (i * 30) % 360;
+            clone.material.color.setHSL(hueShift / 360, 1, 0.5);
+            window.generatedLines.add(clone);
+        }
+    } catch(e) { console.error('generateLinesTrail failed', e); }
 }
 
 function fetchSculpture(id) {
@@ -1300,7 +3177,11 @@ function handleGamepadTriggers(gamepad) {
             rgbShiftPass.uniforms['amount'].value = params.rsx;
             rgbShiftPass.uniforms.amount.value = params.rsx;
             rgbShiftPass.uniforms['angle'].value = params.rsy;
+
         }
+
+        // Also enable AfterimagePass (motion blur) on L1
+        if (afterimagePass) afterimagePass.enabled = true;
     }
     if (!window.gamepadState.leftBumper) {
         window.gamepadButtonLeftBumperPressed = false;
@@ -1332,24 +3213,24 @@ function handleGamepadTriggers(gamepad) {
     // Left Trigger (L2): Film grain + RGB shift + bokeh focal (40-50)
     {
         const l2 = Math.max(0, Math.min(1, window.gamepadState.leftTrigger || 0));
+
+
         if (l2 > 0.05) {
             // Film grain
             if (filmPass && filmPass.uniforms) {
                 filmPass.enabled = true;
                 // Map l2 to noise intensity 0..0.8 and subtle scanlines 0..0.15
-                filmPass.uniforms['nIntensity'].value = 0.8 * l2;
-                filmPass.uniforms['sIntensity'].value = 0.15 * l2;
+                filmPass.uniforms['nIntensity'].value = 1.8 * l2;
+                filmPass.uniforms['sIntensity'].value = 1.15 * l2;
                 filmPass.uniforms['sCount'].value = 1024 + Math.floor(l2 * 3072);
                 filmPass.uniforms['grayscale'].value = false;
             }
-            // Halftone (dots) driven by L2
-            if (halftonePass && halftonePass.uniforms) {
-                halftonePass.enabled = true;
-                // radius 0..2.5, scatter 0..0.7
-                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 2.5 * l2;
-                if (halftonePass.uniforms['scatter']) halftonePass.uniforms['scatter'].value = 0.7 * l2;
-                if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
-                if (halftonePass.uniforms['blending']) halftonePass.uniforms['blending'].value = 1.0;
+
+            // Add DotScreen trail flavor on L2 as well
+            if (dotPass && dotPass.uniforms) {
+                dotPass.enabled = true;
+                dotPass.uniforms['angle'].value = l2 * Math.PI; // 0..PI
+                dotPass.uniforms['scale'].value = Math.max(10.2, 1.0 - l2 * 0.8); // 1..0.2
             }
             // RGB shift
             if (rgbShiftPass) {
@@ -1360,17 +3241,36 @@ function handleGamepadTriggers(gamepad) {
                 rgbShiftPass.uniforms.amount.value = amt;
                 // keep current angle
             }
+            // Trails: strengthen Afterimage "motion blur" with L2
+            if (afterimagePass && afterimagePass.uniforms) {
+                afterimagePass.enabled = true;
+                const base = 0.94;
+                const strong = Math.max(0.6, base - l2 * 0.5);
+                afterimagePass.uniforms['damp'].value = strong;
+            }
             // Bokeh focal depth 40..50
             effectController.focalDepth = 40 + l2 * 10;
             if (bokehPass && bokehPass.uniforms && bokehPass.uniforms['focalDepth']) {
                 bokehPass.uniforms['focalDepth'].value = effectController.focalDepth;
             }
 
+            // Edge-trigger fractal aberration on L2 press-in
+            if (!window.fractalL2Active && l2 > 0.2) {
+                window.fractalL2Active = true;
+                fractalizeAberration(6, 55);
+            }
+
             // Hard press triggers fast 180° rotation (counter-clockwise), with blur pulse
             if (l2 > 0.95 && !window.spinL2Triggered) {
                 window.spinL2Triggered = true;
                 niceBlurPulse(600, 300);
-                spinCamera180(false, 400);
+                if (afterimagePass && afterimagePass.uniforms) {
+                    afterimagePass.enabled = true;
+                    const prev = afterimagePass.uniforms['damp'].value;
+                    afterimagePass.uniforms['damp'].value = 0.85;
+                    setTimeout(() => { try { afterimagePass.uniforms['damp'].value = 0.94; } catch(e){} }, 500);
+                }
+                spinCamera180(false, 400, 1);
             }
         } else {
             if (filmPass) filmPass.enabled = false;
@@ -1379,52 +3279,32 @@ function handleGamepadTriggers(gamepad) {
         }
     }
 
-    // Right Trigger (R2): fast bokeh randomization based on discrete bins + DotScreen
+    // Right Trigger (R2): toggle Bokeh on/off and reflect in GUI
     {
         const r2 = Math.max(0, Math.min(1, window.gamepadState.rightTrigger || 0));
-        const bins = 8;
-        const bin = r2 > 0.05 ? Math.min(bins - 1, Math.floor(r2 * bins)) : -1;
-        if (bin >= 0 && bin !== window.prevR2Bin) {
-            window.prevR2Bin = bin;
-            // Ensure bokeh is enabled while randomizing
-            effectController.enabled = true;
-            if (bokehPass) bokehPass.enabled = true;
+        const pressed = r2 > 0.85;
+        if (pressed && !window.gamepadR2TogglePressed) {
+            window.gamepadR2TogglePressed = true;
+            effectController.enabled = !effectController.enabled;
+            if (bokehPass) bokehPass.enabled = effectController.enabled;
             if (gui && gui.controllers) {
-                gui.controllers.forEach(c => { if (c.property === 'enabled') c.setValue(true); });
+                try {
+                    gui.controllers.forEach(c => { if (c.property === 'enabled') c.setValue(effectController.enabled); });
+                } catch(e){}
             }
-            // Fast smooth randomization (~150ms)
-            smoothRandomizeBokeh(150);
-        } else if (bin < 0 && window.prevR2Bin !== -1) {
-            window.prevR2Bin = -1;
+            try { applyBokehToShaderAndGUI(); } catch(e){}
         }
-
-        // Dot screen driven continuously by R2
-        if (dotPass && dotPass.uniforms) {
-            if (r2 > 0.05) {
-                dotPass.enabled = true;
-                // angle 0..PI/2, scale 1..0.25 (smaller scale = denser dots)
-                dotPass.uniforms['angle'].value = (Math.PI * 0.5) * r2;
-                dotPass.uniforms['scale'].value = 1.0 - 0.75 * r2;
-                // keep center at 0,0
-            } else {
-                dotPass.enabled = false;
-            }
-        }
-
-        // Hard press triggers fast 180° rotation (clockwise), with blur pulse
-        if (r2 > 0.95 && !window.spinR2Triggered) {
-            window.spinR2Triggered = true;
-            niceBlurPulse(600, 300);
-            spinCamera180(true, 400);
-        }
-        if (r2 <= 0.05) {
-            window.spinR2Triggered = false;
-        }
+        if (!pressed) window.gamepadR2TogglePressed = false;
     }
 
     // Update RGB shift uniforms with gamepad d-pad
     updateRGBShiftWithGamepad();
 }
+
+// Expose handlers globally so they are always invokable
+window.handleGamepadInput = handleGamepadInput;
+window.handleGamepadButtonPresses = handleGamepadButtonPresses;
+window.handleGamepadTriggers = handleGamepadTriggers;
 
 // Randomize bokeh parameters for creative effects
 function randomizeBokehParameters() {
@@ -1737,11 +3617,14 @@ async function loadRandomSculpture() {
         const sculpture = await store.dispatch('fetchSculpture', { id: choice.id });
         if (!sculpture || !sculpture.shaderSource) throw new Error('No shader code');
 
-        // Apply code into editor/selection
+        // Apply code into editor/selection or viewer
         if (store.state.selectedSculpture) {
             store.state.selectedSculpture.shaderSource = sculpture.shaderSource;
             store.state.selectedSculpture.saved = false;
             store.commit('setUnsavedChanges', { [store.state.selectedSculpture.id]: false });
+        } else if (store.state.currSculpture) {
+            // In viewer mode, update current sculpture's shader to trigger recompile
+            store.state.currSculpture.shaderSource = sculpture.shaderSource;
         }
         if (window.cm && typeof window.cm.setValue === 'function') {
             window.cm.setValue(sculpture.shaderSource);
@@ -1761,8 +3644,8 @@ window.loadRandomSculpture = loadRandomSculpture;
 // Toggle RGB shift effect
 function toggleRGBShift() {
     if (rgbShiftPass) {
-        rgbShiftPass.enabled = !rgbShiftPass.enabled;
-        console.log('🎨 RGB Shift effect:', rgbShiftPass.enabled ? 'ENABLED' : 'DISABLED');
+        rgbShiftPass.enabled = true;
+        console.log('🎨 RGB Shift effect: ENABLED');
     }
 }
 
@@ -1794,6 +3677,18 @@ function updateRGBShiftWithGamepad() {
         console.log('🎮 RGB Shift Angle:', params.rsy);
     }
 
+    // D-pad controls for Halftone radius
+    if (window.gamepadState.dpadUp && halftoneController) {
+        halftoneController.radius = Math.min(20.0, halftoneController.radius + 2.0);
+        updateHalftoneBlending();
+        console.log('🎮 Halftone Radius:', halftoneController.radius);
+    }
+    if (window.gamepadState.dpadDown && halftoneController) {
+        halftoneController.radius = Math.max(0.1, halftoneController.radius - 2.0);
+        updateHalftoneBlending();
+        console.log('🎮 Halftone Radius:', halftoneController.radius);
+    }
+
     if (updated) {
         const mod = getAudioModulation(0.35, false);
         rgbShiftPass.uniforms['amount'].value = params.rsx * mod;
@@ -1814,6 +3709,12 @@ function render(time) {
         updateAudioLevel();
         audioPhase += 0.12 + audioLevel * 0.6;
     }
+
+	// Keyboard-held momentary effects (audio-reactive)
+	applyHeldKeyEffects();
+
+	// Apply palette toggles via hue/saturation
+	applyPaletteToggles();
 
 	const t = (Date.now() - startTime) % 600000.0;
 
@@ -1944,11 +3845,90 @@ function render(time) {
 		mapControls.update();
 	}
 
+	// Trail fading, gentle per-frame curvature, and occasional generation
+	try {
+		if (!window.generatedLines) {
+			// lazily attach group to scene
+			window.generatedLines = new Group();
+			scene.add(window.generatedLines);
+		}
+		// fade + bend existing
+		const toRemove = [];
+		const bendTime = (Date.now() - startTime) * 0.001;
+		window.generatedLines.children.forEach(line => {
+			try {
+				// slow fade for longer persistence
+				if (line.material && typeof line.material.opacity === 'number') {
+					line.material.opacity *= 0.98; // slower fade
+					if (line.material.opacity < 0.01) toRemove.push(line);
+				}
+				// gentle curvature animation per frame
+				if (line.geometry && line.geometry.getAttribute && line.geometry.getAttribute('position')) {
+					const posAttr = line.geometry.getAttribute('position');
+					if (!line.userData) line.userData = {};
+					if (!line.userData.basePositions) {
+						// snapshot base positions once
+						line.userData.basePositions = new Float32Array(posAttr.array);
+						line.userData.phase = Math.random() * Math.PI * 2;
+						line.userData.amp = 0.25 + Math.random() * 0.35; // 0.25..0.6
+						line.userData.freq = 0.3 + Math.random() * 0.5;   // 0.3..0.8
+						line.userData.distTick = 0;
+					}
+					const base = line.userData.basePositions;
+					const phase = line.userData.phase || 0.0;
+					const amp = line.userData.amp || 0.3;
+					const freq = line.userData.freq || 0.5;
+					const tW = bendTime * freq;
+					for (let i = 0; i < posAttr.count; i++) {
+						const idx = i * 3;
+						const bx = base[idx];
+						const by = base[idx + 1];
+						const bz = base[idx + 2];
+						// layered sinusoidal offsets for smooth curvature
+						posAttr.array[idx]     = bx + Math.sin(tW + i * 0.12 + phase) * amp * 0.35;
+						posAttr.array[idx + 1] = by + Math.cos(tW * 0.9 + i * 0.15 + phase) * amp * 0.35;
+						posAttr.array[idx + 2] = bz + Math.sin(tW * 0.7 + i * 0.10 + phase) * amp * 0.20;
+					}
+					posAttr.needsUpdate = true;
+					// refresh dashed distances occasionally
+					line.userData.distTick = (line.userData.distTick || 0) + 1;
+					if (line.userData.distTick % 12 === 0 && typeof line.computeLineDistances === 'function') {
+						line.computeLineDistances();
+					}
+				}
+			} catch(e){}
+		});
+		toRemove.forEach(l => { try { window.generatedLines.remove(l); } catch(e){} });
+		// randomly seed new trails
+		if (Math.random() < 0.05) {
+			generateLinesTrail();
+		}
+	} catch(e){}
+
     // Rotate selected sculpture on X when enabled (override)
-    if (window.rotateXEnabled && store.state.selectedSculpture && store.state.selectedObject) {
-        const delta = 0.01 * (typeof getAudioModulation === 'function' ? getAudioModulation() : 1.0);
-        window.rotXAngle += delta;
-        store.state.selectedObject.rotation.x = window.rotXAngle;
+    if (window.rotateXEnabled) {
+        // Autofix: if no selectedObject, try to resolve it
+        if (!store.state.selectedObject) {
+            try {
+                const curr = store.state.currSculpture;
+                if (curr && curr.id) {
+                    const match = store.state.objectsToUpdate.find(o => o && o.mesh && o.mesh.name === curr.id);
+                    if (match && match.mesh) store.state.selectedObject = match.mesh;
+                }
+                if (!store.state.selectedObject && store.state.objectsToUpdate.length > 0) {
+                    store.state.selectedObject = store.state.objectsToUpdate[0].mesh;
+                }
+                if (!store.state.selectedObject && window.scene) {
+                    const meshes = window.scene.children.filter(obj => obj.type === 'Mesh');
+                    if (meshes.length > 0) store.state.selectedObject = meshes[0];
+                }
+            } catch(e) {}
+        }
+        if (store.state.selectedObject) {
+            const delta = 0.1 * (typeof getAudioModulation === 'function' ? getAudioModulation() : 1.0);
+            window.rotXAngle += delta;
+            store.state.selectedObject.rotation.x = window.rotXAngle;
+        }
     }
 
 	// Handle bokeh depth-of-field rendering
@@ -2266,7 +4246,6 @@ function onCanvasResize() {
 		// Update bokeh render targets
 		if (rtTextureDepth) rtTextureDepth.setSize(width, height);
 		if (rtTextureColor) rtTextureColor.setSize(width, height);
-		if (halftonePass && halftonePass.setSize) halftonePass.setSize(width, height);
 
 		// Update bokeh uniforms
 		if (bokehPass) {

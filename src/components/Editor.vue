@@ -168,6 +168,7 @@ export default {
           this.code = restored;
           if (this.$store.state.selectedSculpture) {
             this.$store.state.selectedSculpture.shaderSource = restored;
+
           }
         }
       } catch(e) {}
@@ -323,17 +324,24 @@ export default {
                     return response.text();
                 })
                 .then(spCode => {
+                    // Insert custom code before audioLevel input for Shader Park sketches
+                    let processedSPCode = spCode;
+                    console.log('spCode', spCode)
+                    if (this.selectedSculpture && this.selectedSculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
+
+                    }
+
                     // Update the code in the editor
-                    this.code = spCode;
+                    this.code = processedSPCode;
                     // Update the sculpture source
                     if (this.selectedSculpture) {
-                        this.selectedSculpture.shaderSource = spCode;
+                        this.selectedSculpture.shaderSource = processedSPCode;
                         this.selectedSculpture.saved = false;
                         this.$store.commit('setUnsavedChanges', {[this.selectedSculpture.id] : false});
                     }
                     // Persist
                     const currId = this.selectedSculpture ? this.selectedSculpture.id : null;
-                    this.persistCode(spCode, currId);
+                    this.persistCode(processedSPCode, currId);
                     console.log(`Loaded SP file: ${filename}.sp`);
                 })
                 .catch(error => {
@@ -359,19 +367,27 @@ export default {
             return;
           }
 
+          // Insert custom code before audioLevel input for Shader Park sketches
+          let processedShaderSource = sculpture.shaderSource;
+          console.log('spCode2', sculpture.shaderSource)
+
+          if (sculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
+
+          }
+
           // Update the code in the editor
-          this.code = sculpture.shaderSource;
+          this.code = processedShaderSource;
 
           // Update the sculpture source if one is selected
           if (this.selectedSculpture) {
-            this.selectedSculpture.shaderSource = sculpture.shaderSource;
+            this.selectedSculpture.shaderSource = processedShaderSource;
             this.selectedSculpture.saved = false;
             this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
           }
 
           // Persist
           const currId = this.selectedSculpture ? this.selectedSculpture.id : null;
-          this.persistCode(sculpture.shaderSource, currId);
+          this.persistCode(processedShaderSource, currId);
           console.log(`Loaded sculpture: "${sculpture.title}" by ${sculpture.username}`);
 
           // Reset the select to the placeholder
@@ -393,9 +409,18 @@ export default {
 
         this.$store.dispatch('fetchSculpture', { id: random.id }).then(sculpture => {
           if (!sculpture || !sculpture.shaderSource) throw new Error('No shader in sculpture');
-          this.code = sculpture.shaderSource;
+
+          // Insert custom code before audioLevel input for Shader Park sketches
+          let processedShaderSource = sculpture.shaderSource;
+          console.log('spCode3', sculpture.shaderSource)
+
+          if (sculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
+
+          }
+
+          this.code = processedShaderSource;
           if (this.selectedSculpture) {
-            this.selectedSculpture.shaderSource = sculpture.shaderSource;
+            this.selectedSculpture.shaderSource = processedShaderSource;
             this.selectedSculpture.saved = false;
             this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
           }
@@ -484,11 +509,28 @@ export default {
                 this.selectedSculpture.saved = false;
                 this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
             }
-            this.code = newCode;
+          let processedCode = newCode;
+
+            // / if !isgls - todo
+          // const pattern = /^let\s+audioLevel/;
+          // if (this.selectedSculpture && this.selectedSculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
+          //   if (!pattern.test(newCode)) {
+          //     processedCode = 'let audioLevel = input();' + processedCode;
+          //   }
+          // }
+
+            this.code = processedCode;
+
+            // Insert custom code before audioLevel input for Shader Park sketches
+          console.log('spCode4 processedCode', processedCode, 'this.selectedSculptur', newCode, 'this.selectedSculpture4', this.selectedSculpture)
+
+
+
+
             if(this.autoUpdate) {
                 if(this.selectedSculpture){
 
-                    this.selectedSculpture.shaderSource = this.code;
+                    this.selectedSculpture.shaderSource = processedCode;
                 }
             }
             // Persist current code (global + per-sculpture)
@@ -518,7 +560,13 @@ export default {
         },
         play() {
             if(this.selectedSculpture){
-                this.selectedSculpture.shaderSource = this.code;
+                // Insert custom code before audioLevel input for Shader Park sketches
+                let processedCode = this.code;
+                // if (this.selectedSculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
+                //
+                // }
+
+                this.selectedSculpture.shaderSource = processedCode;
             }
         },
         download() {
@@ -846,7 +894,7 @@ export default {
 
 .delete, .close, .save, .autoUpdate-label, .checkbox, .play {
     float: right;
-    margin-left: 10px;
+    top: -10px
 }
 
 .autoUpdate-label {
