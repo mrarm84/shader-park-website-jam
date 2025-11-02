@@ -412,10 +412,11 @@ export default {
 
           // Insert custom code before audioLevel input for Shader Park sketches
           let processedShaderSource = sculpture.shaderSource;
-          console.log('spCode3', sculpture.shaderSource)
 
-          if (sculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
-
+          const pattern = /^let\s+audioLevel/;
+          const pattern2 = /^\/\/let\s+audioLevel/;
+          if (!pattern.test(processedShaderSource) && !pattern2.test(processedShaderSource)) {
+         //   processedShaderSource = '\/\/let audioLevel = input();' + processedCode;
           }
 
           this.code = processedShaderSource;
@@ -510,21 +511,13 @@ export default {
                 this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
             }
           let processedCode = newCode;
-
-            // / if !isgls - todo
-          // const pattern = /^let\s+audioLevel/;
-          // if (this.selectedSculpture && this.selectedSculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
-          //   if (!pattern.test(newCode)) {
-          //     processedCode = 'let audioLevel = input();' + processedCode;
-          //   }
-          // }
+          const pattern = /^let\s+audioLevel/;
+          const pattern2 = /^\/\/let\s+audioLevel/;
+          if (!pattern.test(newCode) && !pattern2.test(newCode)) {
+            processedCode = '\/\/let audioLevel = input();\n' + processedCode;
+          }
 
             this.code = processedCode;
-
-            // Insert custom code before audioLevel input for Shader Park sketches
-          console.log('spCode4 processedCode', processedCode, 'this.selectedSculptur', newCode, 'this.selectedSculpture4', this.selectedSculpture)
-
-
 
 
             if(this.autoUpdate) {
@@ -565,7 +558,12 @@ export default {
                 // if (this.selectedSculpture.type !== 'glsl') { // Only for Shader Park code, not GLSL
                 //
                 // }
-
+              console.log('this.type2', this.type)
+              const pattern = /^let\s+audioLevel/;
+              const pattern2 = /^\/\/let\s+audioLevel/;
+              if (!pattern.test(newCode) && !pattern2.test(newCode)) {
+                processedCode = '\/\/let audioLevel = input();\n' + processedCode;
+              }
                 this.selectedSculpture.shaderSource = processedCode;
             }
         },

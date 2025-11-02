@@ -109,13 +109,13 @@ export default {
       if (this.sculpture) {
         let processedInput = input;
 
-        // / if !isgls - todo
-        // const pattern = /^let\s+audioLevel/;
-        // if (!pattern.test(input)) {
-        //   processedInput = 'let audioLevel = input();' + input;
-        //   console.log("22dont Starts with 'let' followed by whitespace and 'audioLevel'");
-        // }
 
+        const pattern = /^let\s+audioLevel/;
+        const pattern2 = /^\/\/let\s+audioLevel/;
+        if (!pattern.test(processedInput) && !pattern2.test(processedInput)) {
+         processedInput = '\/\/let audioLevel = input();\n' + processedCode;
+        }
+        console.log('this.type1', this.type)
         // if (this.type !== 'glsl') { // Only for Shader Park code, not GLSL
         // }
 
