@@ -49,6 +49,7 @@ export class Sculpture {
         this.pedestalEdges.position.set(0, -1.5-this.sepBuffer, 0);
         // this.mesh.add(this.pedestalEdges);
         this.selected = false;
+        this.setIsGlSl(isGlsl);
         this.setOpacity(0.0);
         this.setAudiolevel(0.0);
     }
@@ -81,6 +82,9 @@ export class Sculpture {
         this.mesh.visible = value !== 0.0;
         this.pedestal.material.opacity = this.opacity;
     }
+    setIsGlSl(value) {
+        this.isGlSL = value;
+    }
     setAudiolevel(value) {
         this.audiolevel = value;
     }
@@ -89,7 +93,7 @@ export class Sculpture {
         if (newSource) {
             this.source = newSource;
         }
-        console.log('refreshMaterial this.IsGLSL: ' + this.IsGLSL)
+        console.log('w refreshMaterial this.IsGLSL: ' + this.IsGLSL)
         if (this.IsGLSL) {
             try {
                 this.mesh.material = glslToThreeJSMaterial(this.source, this.payload);

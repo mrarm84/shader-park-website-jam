@@ -320,6 +320,59 @@ let loadingTextVisible = false;
 let halftoneGUI;
 let halftoneController; // Make accessible for external sync
 
+// SP Examples cycling
+let spExamplesIndex = 0;
+const spExamplesFiles = [
+    'sphere.sp',
+    'cube.sp',
+    'torus.sp',
+    'terrain.sp',
+    'audio-reactive.sp'
+];
+
+function cycleSPExamples() {
+    if (spExamplesFiles.length === 0) return;
+
+    spExamplesIndex = (spExamplesIndex + 1) % spExamplesFiles.length;
+    const filename = spExamplesFiles[spExamplesIndex];
+
+    fetch(`/sp-examples/${filename}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text();
+        })
+        .then(spCode => {
+            console.log(`Loading SP example: ${filename}`);
+
+            // Apply to current sculpture if in viewer mode
+            if (window.cm && typeof window.cm.setValue === 'function') {
+                window.cm.setValue(spCode);
+            }
+
+            // If there's a selected sculpture, update it
+            if (store.state.selectedSculpture) {
+                store.state.selectedSculpture.shaderSource = spCode;
+                store.state.selectedSculpture.saved = false;
+                store.commit('setUnsavedChanges', { [store.state.selectedSculpture.id]: false });
+            }
+
+            // If in viewer mode, update current sculpture
+            if (store.state.currSculpture) {
+                store.state.currSculpture.shaderSource = spCode;
+            }
+
+            // Trigger recompile
+            if (window.refreshCurrentSculpture) {
+                window.refreshCurrentSculpture();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading SP example:', error);
+        });
+}
+
 // Function to sync GUI controller with current halftonePass state
 function syncHalftoneGUI() {
     if (!halftoneGUI || !halftoneController || !halftonePass) return;
@@ -875,7 +928,7 @@ function createAudioUI() {
 	rndPBtn.style.cursor = 'pointer';
 	rndPBtn.style.zIndex = '10010';
 	rndPBtn.style.fontSize = '12px';
-	rndPBtn.addEventListener('click', () => { try { randomizeAllParams(); } catch(e) { console.error(e); } });
+    rndPBtn.addEventListener('click', () => { try { smoothRandomizeAllParams(); } catch(e) { console.error(e); } });
 	document.body.appendChild(rndPBtn);
 	window.topControls.push(rndPBtn);
 
@@ -1353,6 +1406,11 @@ function handleKeyDown(e) {
         case '5': {
             // Toggle loading text display
 
+            break;
+        }
+        case '0': {
+            // Cycle through sp-examples files
+            cycleSPExamples();
             break;
         }
         // Third row: content
@@ -1991,7 +2049,7 @@ function randomizeAllParams() {
         if (halftonePass && halftonePass.uniforms) {
             halftonePass.enabled = true;
             if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = rIn(0.2, 3.0);
-            setHalftoneScatter(rIn(0.0, 0.1));
+            // setHalftoneScatter(rIn(0.0, 0.1));
 
         }
         // Film
@@ -2409,11 +2467,11 @@ renderer.setClearColor(0xffffff, 1);
 	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
 	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
 
-	composer.addPass(rgbShiftPass);
+	//composer.addPassrgbShiftPass);
 	// Hue/Saturation pass for palette toggles
 	hueSatPass = new ShaderPass(HueSaturationShader);
 	hueSatPass.enabled = false;
-	composer.addPass(hueSatPass);
+	//composer.addPasshueSatPass);
 	// Brightness/Contrast pass for final grading
 	brightnessPass = new ShaderPass(BrightnessContrastShader);
 	brightnessPass.enabled = false;
@@ -2421,11 +2479,11 @@ renderer.setClearColor(0xffffff, 1);
 		brightnessPass.uniforms['brightness'].value = 0.0;
 		brightnessPass.uniforms['contrast'].value = 0.0;
 	}
-	composer.addPass(brightnessPass);
+	// //composer.addPassbrightnessPass);
 	// Mirror pass (screen-space flips)
 	mirrorPass = new ShaderPass(MirrorAxisShader);
 	mirrorPass.enabled = false;
-	composer.addPass(mirrorPass);
+	//composer.addPassmirrorPass);
 	// Vignette pass (disabled by default)
 	vignettePass = new ShaderPass(VignetteShader);
 	vignettePass.enabled = false;
@@ -2433,13 +2491,13 @@ renderer.setClearColor(0xffffff, 1);
 		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
 		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
 	}
-	composer.addPass(vignettePass);
+	//composer.addPassvignettePass);
 
 	// Third-row exclusive passes
 	// Bloom
 	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
 	bloomPass.enabled = false;
-	composer.addPass(bloomPass);
+	//composer.addPassbloomPass);
 	// SAO (ambient occlusion)
 	saoPass = new SAOPass(scene, camera, false, true);
 	saoPass.enabled = false;
@@ -2450,15 +2508,15 @@ renderer.setClearColor(0xffffff, 1);
 		saoPass.params.saoKernelRadius = 16;
 		saoPass.params.saoMinResolution = 0;
 	}
-	composer.addPass(saoPass);
+	//composer.addPasssaoPass);
 	// CubeTexture pass (only effective if a cube background exists)
 	cubeTexturePass = new CubeTexturePass(camera, scene);
 	cubeTexturePass.enabled = false;
-	composer.addPass(cubeTexturePass);
-	composer.addPass(filmPass);
-	composer.addPass(halftonePass);
-	composer.addPass(dotColorPass);
-	composer.addPass(afterimagePass);
+	//composer.addPasscubeTexturePass);
+	//composer.addPassfilmPass);
+	//composer.addPasshalftonePass);
+	//composer.addPassdotColorPass);
+	//composer.addPassafterimagePass);
 	composer.addPass(bokehPass);
 
 	// Setup GUI controls for bokeh effect
@@ -3356,6 +3414,278 @@ function randomizeBokehParameters() {
     console.log('🎲 Bokeh parameters randomized!');
 }
 
+// Smoothly tween all parameters to random targets over durationMs
+function smoothRandomizeAllParams(durationMs = 2000) {
+    const rIn = (a, b) => a + Math.random() * (b - a);
+    const rBool = (p = 0.5) => Math.random() < p;
+
+    try {
+        // Generate target values for all parameters
+        const targetPalette = {
+            hue: rIn(-1.0, 1.0),
+            saturation: rIn(-1.0, 1.0),
+            brightness: rIn(-0.4, 0.4),
+            contrast: rIn(-0.4, 0.4),
+            hsvMode: rBool(0.5),
+            rsBoost: rIn(0.0, 0.25)
+        };
+
+        const targetRGBShift = rgbShiftPass ? {
+            amount: rIn(0.0, 0.35),
+            angle: rIn(0, Math.PI * 2)
+        } : null;
+
+        const targetDotScreen = dotPass ? {
+            enabled: rBool(0.7),
+            angle: rIn(0, Math.PI),
+            scale: rIn(0.2, 1.0)
+        } : null;
+
+        const targetHalftone = halftonePass ? {
+            enabled: true,
+            radius: rIn(0.2, 3.0)
+        } : null;
+
+        const targetFilm = filmPass ? {
+            enabled: rBool(0.7),
+            nIntensity: rIn(0.0, 0.8),
+            sIntensity: rIn(0.0, 0.2),
+            sCount: Math.floor(rIn(512, 4096))
+        } : null;
+
+        const targetAfterimage = afterimagePass ? {
+            enabled: rBool(0.8),
+            damp: rIn(0.7, 0.97)
+        } : null;
+
+        const targetVignette = vignettePass ? {
+            enabled: rBool(0.6),
+            offset: rIn(1.0, 1.6),
+            darkness: rIn(0.8, 2.0)
+        } : null;
+
+        const targetSAO = saoPass ? {
+            enabled: rBool(0.5),
+            saoBias: rIn(0.0, 1.0),
+            saoIntensity: rIn(0.0, 0.05),
+            saoScale: rIn(0.5, 2.0),
+            saoKernelRadius: Math.floor(rIn(8, 32))
+        } : null;
+
+        const targetBloom = bloomPass ? {
+            enabled: rBool(0.5)
+        } : null;
+
+        // Create current state snapshot
+        const currentPalette = {
+            hue: window.paletteState.hue,
+            saturation: window.paletteState.saturation,
+            brightness: window.paletteState.brightness,
+            contrast: window.paletteState.contrast,
+            rsBoost: window.paletteState.rsBoost
+        };
+
+        const currentRGBShift = rgbShiftPass ? {
+            amount: rgbShiftPass.uniforms['amount'].value,
+            angle: rgbShiftPass.uniforms['angle'].value
+        } : null;
+
+        const currentDotScreen = dotPass ? {
+            angle: dotPass.uniforms['angle'].value,
+            scale: dotPass.uniforms['scale'].value
+        } : null;
+
+        const currentHalftone = halftonePass ? {
+            radius: halftonePass.uniforms['radius'].value
+        } : null;
+
+        const currentFilm = filmPass ? {
+            nIntensity: filmPass.uniforms['nIntensity'].value,
+            sIntensity: filmPass.uniforms['sIntensity'].value,
+            sCount: filmPass.uniforms['sCount'].value
+        } : null;
+
+        const currentAfterimage = afterimagePass ? {
+            damp: afterimagePass.uniforms['damp'].value
+        } : null;
+
+        const currentVignette = vignettePass ? {
+            offset: vignettePass.uniforms['offset'].value,
+            darkness: vignettePass.uniforms['darkness'].value
+        } : null;
+
+        const currentSAO = saoPass ? {
+            saoBias: saoPass.params.saoBias,
+            saoIntensity: saoPass.params.saoIntensity,
+            saoScale: saoPass.params.saoScale,
+            saoKernelRadius: saoPass.params.saoKernelRadius
+        } : null;
+
+        // Start tweening
+        const startTime = Date.now();
+
+        new TWEEN.Tween(currentPalette)
+            .to(targetPalette, durationMs)
+            .easing(TWEEN.Easing.Quadratic.InOut)
+            .onUpdate(function() {
+                // Update palette
+                window.paletteState.hue = this.hue;
+                window.paletteState.saturation = this.saturation;
+                window.paletteState.brightness = this.brightness;
+                window.paletteState.contrast = this.contrast;
+                window.paletteState.rsBoost = this.rsBoost;
+                applyPaletteState();
+
+                // Update palette UI if open
+                const ph = document.querySelector('#pal-hue');
+                const ps = document.querySelector('#pal-sat');
+                const pb = document.querySelector('#pal-bri');
+                const pc = document.querySelector('#pal-con');
+                const pr = document.querySelector('#pal-rs');
+                if (ph) ph.value = String(this.hue);
+                if (ps) ps.value = String(this.saturation);
+                if (pb) pb.value = String(this.brightness);
+                if (pc) pc.value = String(this.contrast);
+                if (pr) pr.value = String(this.rsBoost);
+            })
+            .start();
+
+        if (currentRGBShift && targetRGBShift) {
+            new TWEEN.Tween(currentRGBShift)
+                .to(targetRGBShift, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (rgbShiftPass && rgbShiftPass.uniforms) {
+                        rgbShiftPass.uniforms['amount'].value = this.amount;
+                        if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = this.amount;
+                        rgbShiftPass.uniforms['angle'].value = this.angle;
+                    }
+                })
+                .start();
+        }
+
+        if (currentDotScreen && targetDotScreen) {
+            new TWEEN.Tween(currentDotScreen)
+                .to(targetDotScreen, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (dotPass && dotPass.uniforms) {
+                        dotPass.uniforms['angle'].value = this.angle;
+                        dotPass.uniforms['scale'].value = this.scale;
+                    }
+                })
+                .start();
+        }
+
+        if (currentHalftone && targetHalftone) {
+            new TWEEN.Tween(currentHalftone)
+                .to(targetHalftone, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (halftonePass && halftonePass.uniforms) {
+                        halftonePass.uniforms['radius'].value = this.radius;
+                    }
+                })
+                .start();
+        }
+
+        if (currentFilm && targetFilm) {
+            new TWEEN.Tween(currentFilm)
+                .to(targetFilm, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (filmPass && filmPass.uniforms) {
+                        filmPass.uniforms['nIntensity'].value = this.nIntensity;
+                        filmPass.uniforms['sIntensity'].value = this.sIntensity;
+                        filmPass.uniforms['sCount'].value = Math.floor(this.sCount);
+                    }
+                })
+                .start();
+        }
+
+        if (currentAfterimage && targetAfterimage) {
+            new TWEEN.Tween(currentAfterimage)
+                .to(targetAfterimage, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (afterimagePass && afterimagePass.uniforms) {
+                        afterimagePass.uniforms['damp'].value = this.damp;
+                    }
+                })
+                .start();
+        }
+
+        if (currentVignette && targetVignette) {
+            new TWEEN.Tween(currentVignette)
+                .to(targetVignette, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (vignettePass && vignettePass.uniforms) {
+                        vignettePass.uniforms['offset'].value = this.offset;
+                        vignettePass.uniforms['darkness'].value = this.darkness;
+                    }
+                })
+                .start();
+        }
+
+        if (currentSAO && targetSAO) {
+            new TWEEN.Tween(currentSAO)
+                .to(targetSAO, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (saoPass && saoPass.params) {
+                        saoPass.params.saoBias = this.saoBias;
+                        saoPass.params.saoIntensity = this.saoIntensity;
+                        saoPass.params.saoScale = this.saoScale;
+                        saoPass.params.saoKernelRadius = Math.floor(this.saoKernelRadius);
+                    }
+                })
+                .start();
+        }
+
+        // Handle boolean toggles and bokeh
+        setTimeout(() => {
+            // Apply boolean toggles
+            if (targetDotScreen) dotPass.enabled = targetDotScreen.enabled;
+            if (targetFilm) filmPass.enabled = targetFilm.enabled;
+            if (targetAfterimage) afterimagePass.enabled = targetAfterimage.enabled;
+            if (targetVignette) vignettePass.enabled = targetVignette.enabled;
+            if (targetSAO) saoPass.enabled = targetSAO.enabled;
+            if (targetBloom) bloomPass.enabled = targetBloom.enabled;
+
+            // Update HSV mode
+            window.paletteState.hsvMode = targetPalette.hsvMode;
+            const pm = document.querySelector('#pal-hsv');
+            if (pm) pm.checked = !!targetPalette.hsvMode;
+
+            // Random background
+            if (Math.random() < 0.6) {
+                applyBackground(2);
+            }
+
+            // Bokeh randomization (only if currently enabled)
+            try {
+                if (effectController && effectController.enabled) {
+                    const prev = { enabled: effectController.enabled };
+                    effectController.fstop = rIn(0.5, 5.0);
+                    effectController.maxblur = rIn(0.0, 5.0);
+                    effectController.focalDepth = rIn(10.0, 100.0);
+                    applyBokehToShaderAndGUI();
+                    effectController.enabled = prev.enabled;
+                    if (bokehPass) bokehPass.enabled = prev.enabled;
+                }
+            } catch(e){}
+
+            console.log('🎲 All parameters smoothly randomized!');
+        }, durationMs);
+
+    } catch (e) {
+        console.error('smoothRandomizeAllParams failed:', e);
+        // Fallback to instant randomization
+        randomizeAllParams();
+    }
+}
+
 // Smoothly tween bokeh parameters to random targets over durationMs
 function smoothRandomizeBokeh(durationMs = 1000) {
     // Generate target params (reuse ranges from randomizeBokehParameters)
@@ -3665,7 +3995,7 @@ function updateRGBShiftWithGamepad() {
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
     if (window.gamepadState.dpadRight) {
-        params.rsx = Math.min(1, params.rsx + 0.001);
+        params.rsx = Math.min(0.01, params.rsx + 0.001);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
