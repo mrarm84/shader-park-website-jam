@@ -102,6 +102,8 @@ export default {
         },
     },
     mounted() {
+      copnsole.log('tototototototototototo' +
+          '')
         this.$nextTick(() => {
             let canvasContainer = this.$refs.canvasContainer;
             this.scene = new Scene();

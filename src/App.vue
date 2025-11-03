@@ -15,6 +15,7 @@
 		<div class="main embeded" v-if="$route.meta.title === 'embed'">
 			<router-view :key="$route.fullPath"></router-view>
 			<div ref="threeCanvas" class="canvas-container" ></div>
+			<div ref="threeCanvas" class="canvas-container-new" ></div>
 		</div>
 	</div>
 </template>
@@ -126,7 +127,7 @@ export default {
 				this.$store.commit('setCanvasSize', {width: window.innerWidth, height: window.innerHeight});
 			}
 		})
-		
+
 	},
 };
 </script>
@@ -326,7 +327,7 @@ a:hover {
 //     position: absolute;
 //     width: 100%;
 //     bottom: 20px;
-    
+
 // }
 
 .w-layout-grid {

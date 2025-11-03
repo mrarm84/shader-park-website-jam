@@ -9,6 +9,7 @@
             </ul>
         </div>
         <div ref="threeCanvas" class="canvas-container" :class="{dragging: dragingMouse}"></div>
+        <div ref="threeCanvas" class="canvas-container-new" :class="{dragging: dragingMouse}"></div>
         <div class="actions-bar"></div>
         <actionBar :cachedWidth="actionsBarWidth" :dragging="dragingMouse" :class="{dragging: dragingMouse}"></actionBar>
     </div>
@@ -164,6 +165,16 @@ canvas {
 }
 
 .canvas-container {
+    -webkit-box-flex: 1;
+    -webkit-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+    transition: width 300ms ease-in-out;
+    width: 0%;
+}
+
+
+.canvas-container-new {
     -webkit-box-flex: 1;
     -webkit-flex: 1;
     -ms-flex: 1;

@@ -260,7 +260,7 @@ export const store = new Vuex.Store({
           commit('setLoading', true);
           let sculpture = Object.assign({}, sculptureObj);
           delete sculpture.sculpture; //remove the three.js 3d object
-          
+
           console.log('saving sculpture');
           const user = getters.getUser;
           if(!user) {
@@ -275,7 +275,7 @@ export const store = new Vuex.Store({
             if (sculpture.uid === user.uid || getters.isAdmin) {  // update existing sculpture
               let route = sculpture.isExample && getters.isAdmin ? 'examples' : 'sculptures'; //must be admin to update example
               delete sculpture.vueId;  // remove the three.js 3d object
-              
+
               resolve(firebase.database().ref(`${route}/${sculpture.id}`).update(sculpture).then(() => {
                 commit('setLoading', false);
               }));
@@ -362,7 +362,7 @@ export const store = new Vuex.Store({
     fetchUserSculptures({commit, getters}, username) {
       commit('setLoading', true);
       // const userId = uid || getters.getUser.uid;
-      
+
       let route = 'sculptures';
       if(getters.isAdmin) {
         route = 'examples';
@@ -438,7 +438,7 @@ export const store = new Vuex.Store({
           commit('setLoading', false);
           return output;
         })
-        .catch(error => console.log(error));      
+        .catch(error => console.log(error));
     },
     fetchAllSculptures({dispatch}) {
       return dispatch('fetchSculptures', 'sculptures');
@@ -452,7 +452,7 @@ export const store = new Vuex.Store({
     favorite({commit, getters}, {sculpture, favorited}) {
       return new Promise(async (resolve, reject) => {
         commit('setLoading', true);
-        
+
         let vueXUserFavorites = getters.userFavorites;
         const user = getters.getUser;
         if(!user) {
@@ -460,7 +460,7 @@ export const store = new Vuex.Store({
           reject('Tried to favorite Sculpture when a User is not logged in');
         }
         let route = sculpture.isExample? 'examples' : 'sculptures';
-        
+
         // Update Favorite Count
         await firebase.database().ref(`${route}/${sculpture.id}/favorites`).transaction((currValue) => {
           let newFavCount;
@@ -473,7 +473,7 @@ export const store = new Vuex.Store({
           commit('setCurrSculpture', sculpture);
           return newFavCount;
         }).catch(error => console.error(error));
-        
+
 
         // Save, or Remove favorite
         let time = Date.now();
@@ -489,9 +489,9 @@ export const store = new Vuex.Store({
           //make sure userFavorites is a dictionary
           if(!(vueXUserFavorites && vueXUserFavorites.constructor === Object)) {
             vueXUserFavorites = {};
-          } 
+          }
           vueXUserFavorites[sculpture.id] = favoriteId;
-          
+
           store.commit('setUserFavorites', vueXUserFavorites);
         } else {
           let favoriteObj = await firebase.database().ref(userPath).once('value');
@@ -501,7 +501,7 @@ export const store = new Vuex.Store({
           await firebase.database().ref(userPath).remove().catch(error => console.error(error));
           await firebase.database().ref(`favorites/${favoriteId}`).remove().catch(error => console.error(error));
         }
-        
+
         commit('setLoading', false);
         resolve();
       });

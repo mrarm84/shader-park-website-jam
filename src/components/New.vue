@@ -39,6 +39,8 @@ export default {
 					payload['example'] = true;
 				}
 				this.$store.dispatch('fetchSculpture', payload).then(data => {
+          console.log(data)
+
 					if(data) {
 						this.emptySculpture = data;
 						this.finishedLoadingSculp = true;
