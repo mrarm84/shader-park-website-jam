@@ -82,8 +82,8 @@ export default {
 						this.$store.state.selectedObject = sculp.sculpture.mesh;
 					}
 					if(this.hidePedestal) {
-						sculp.sculpture.pedestal.visible = false;
-						sculp.sculpture.pedestalEdges.visible = false;
+						// sculp.sculpture.pedestal.visible = false;
+						// sculp.sculpture.pedestalEdges.visible = false;
 					}
 				}
 				this.$store.commit('sculpturesLoaded', true);
