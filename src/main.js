@@ -5,8 +5,21 @@ import 'firebase/compat/auth';
 import 'firebase/compat/database';
 import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
+import * as THREE from 'three/webgpu';
 
-import { Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
+import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
+import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'three/tsl';
+
+// import { MeshStandardMaterial, Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three/webgpu';
+// import * as THREE from 'three';
+import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
+
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+
+
+import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MapControls } from 'three/addons/controls/MapControls.js';
@@ -323,11 +336,10 @@ let halftoneController; // Make accessible for external sync
 // SP Examples cycling
 let spExamplesIndex = 0;
 const spExamplesFiles = [
-    'sphere.sp',
-    'cube.sp',
-    'torus.sp',
-    'terrain.sp',
-    'audio-reactive.sp'
+    'audio-reactive.sp',
+    'new2.sp',
+    'new.sp',
+    'new3.sp'
 ];
 
 function cycleSPExamples() {
@@ -426,7 +438,7 @@ function setupHalftoneGUI() {
     halftoneController = {
         blendIndex: window.halftoneBlendIndex || 0,
         materialBlending: AdditiveBlending,
-        blendMode: MultiplyBlending,
+        // blendMode: MultiplyBlending,
         shaderBlendingMode: 1,
         shaderBlending: halftonePass && halftonePass.uniforms && halftonePass.uniforms['blending'] ? halftonePass.uniforms['blending'].value : 1.0,
         radius: halftonePass && halftonePass.uniforms && halftonePass.uniforms['radius'] ? halftonePass.uniforms['radius'].value : 4,
@@ -451,7 +463,7 @@ function setupHalftoneGUI() {
             fragmentShader: HalftoneShader.fragmentShader,
             vertexShader: HalftoneShader.vertexShader,
             blending: halftoneController.materialBlending,
-            blendMode: halftoneController.blendMode
+            // blendMode: halftoneController.blendMode
         } );
 
         // Update halftonePass with new material
@@ -465,7 +477,7 @@ function setupHalftoneGUI() {
 
         halftonePass.enabled = halftoneController.enabled;
 
-        console.log(`GUI: Halftone - materialBlending: ${halftoneController.materialBlending}, blendMode: ${halftoneController.blendMode}, shaderBlending: ${halftoneController.shaderBlending}, shaderMode: ${halftoneController.shaderBlendingMode}`);
+        console.log(`GUI: Halftone - materialBlending: ${halftoneController.materialBlending},  shaderBlending: ${halftoneController.shaderBlending}, shaderMode: ${halftoneController.shaderBlendingMode}`);
     };
 
     halftoneGUI.add(halftoneController, 'enabled').onChange(updateHalftoneBlending);
@@ -1374,7 +1386,7 @@ function handleKeyDown(e) {
                     fragmentShader: HalftoneShader.fragmentShader,
                     vertexShader: HalftoneShader.vertexShader,
                     blending: currentCombo.blending,
-                    blendMode: currentCombo.blendMode
+                    // blendMode: currentCombo.blendMode
                 } );
 
                 // Update halftonePass with new material
@@ -2441,7 +2453,7 @@ renderer.setClearColor(0xffffff, 1);
 	});
     halftonePass.material = new ShaderMaterial( {
         blending: 0.5,
-        blendMode: MultiplyBlending
+        // blendMode: MultiplyBlending
     } );
     halftonePass.uniforms['greyscale'].value = false;
 
@@ -2467,11 +2479,11 @@ renderer.setClearColor(0xffffff, 1);
 	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
 	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
 
-	//composer.addPassrgbShiftPass);
+	composer.addPass(rgbShiftPass);
 	// Hue/Saturation pass for palette toggles
 	hueSatPass = new ShaderPass(HueSaturationShader);
 	hueSatPass.enabled = false;
-	//composer.addPasshueSatPass);
+	composer.addPass(hueSatPass);
 	// Brightness/Contrast pass for final grading
 	brightnessPass = new ShaderPass(BrightnessContrastShader);
 	brightnessPass.enabled = false;
@@ -2479,11 +2491,11 @@ renderer.setClearColor(0xffffff, 1);
 		brightnessPass.uniforms['brightness'].value = 0.0;
 		brightnessPass.uniforms['contrast'].value = 0.0;
 	}
-	// //composer.addPassbrightnessPass);
+	// composer.addPass(brightnessPass);
 	// Mirror pass (screen-space flips)
 	mirrorPass = new ShaderPass(MirrorAxisShader);
 	mirrorPass.enabled = false;
-	//composer.addPassmirrorPass);
+	composer.addPass(mirrorPass);
 	// Vignette pass (disabled by default)
 	vignettePass = new ShaderPass(VignetteShader);
 	vignettePass.enabled = false;
@@ -2491,13 +2503,13 @@ renderer.setClearColor(0xffffff, 1);
 		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
 		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
 	}
-	//composer.addPassvignettePass);
+	composer.addPass(vignettePass);
 
 	// Third-row exclusive passes
 	// Bloom
 	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
 	bloomPass.enabled = false;
-	//composer.addPassbloomPass);
+	composer.addPass(bloomPass);
 	// SAO (ambient occlusion)
 	saoPass = new SAOPass(scene, camera, false, true);
 	saoPass.enabled = false;
@@ -2508,15 +2520,15 @@ renderer.setClearColor(0xffffff, 1);
 		saoPass.params.saoKernelRadius = 16;
 		saoPass.params.saoMinResolution = 0;
 	}
-	//composer.addPasssaoPass);
+	composer.addPass(saoPass);
 	// CubeTexture pass (only effective if a cube background exists)
 	cubeTexturePass = new CubeTexturePass(camera, scene);
 	cubeTexturePass.enabled = false;
-	//composer.addPasscubeTexturePass);
-	//composer.addPassfilmPass);
-	//composer.addPasshalftonePass);
-	//composer.addPassdotColorPass);
-	//composer.addPassafterimagePass);
+	composer.addPass(cubeTexturePass);
+	composer.addPass(filmPass);
+	composer.addPass(halftonePass);
+	composer.addPass(dotColorPass);
+	composer.addPass(afterimagePass);
 	composer.addPass(bokehPass);
 
 	// Setup GUI controls for bokeh effect
@@ -2568,6 +2580,27 @@ renderer.setClearColor(0xffffff, 1);
 	// controls.target.set(6, 0, 0);
 
 	scene.add(hemisphereLight);
+
+
+    const loader = new FontLoader();
+    loader.load('/fonts/helvetiker_regular.typeface.json', function (font) {
+        const textGeo = new TextGeometry('your place\n your time', {
+            font: font,
+            size: 115,
+            height: 222,
+            curveSegments: 12,
+            bevelEnabled: true,
+            bevelThickness: 0.5,
+            bevelSize: 0.3,
+            bevelSegments: 3
+        });
+
+        const textMaterial = new MeshStandardMaterial({ color: 0x5555ff });
+        const textMesh = new Mesh(textGeo, textMaterial);
+        textMesh.position.set(0, 0, 0);
+        scene.add(textMesh);
+    });
+
     render();
 
 	// Audio UI (small button top-left)
@@ -2753,8 +2786,8 @@ function handleGamepadInput() {
 
                     // Control radius via left stick X (lx)
                     const radiusValue = Math.max(1, Math.abs(lx) * 20.0); // 1 to 20.0 based on |lx|
-                    halftonePass.uniforms['radius'].value = 12*LX;
-syncHalftoneGUI()
+                    halftonePass.uniforms['radius'].value = 12*lx;
+                        syncHalftoneGUI()
                     // Update GUI radius controller to reflect the change
                     if (halftoneGUI && halftoneGUI.controllers) {
                         halftoneGUI.controllers.forEach(controller => {
@@ -3027,11 +3060,11 @@ function ensureLinesParent() {
 }
 
 function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
-    clearGeneratedLines();
-    const parent = ensureLinesParent();
-    const group = new Group();
-    window.generatedLines = group;
-    parent.add(group);
+    // clearGeneratedLines();
+    // const parent = ensureLinesParent();
+    // const group = new Group();
+    // window.generatedLines = group;
+    // parent.add(group);
 
     // Parameters
     const recursion = 1;
@@ -3041,148 +3074,155 @@ function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
     const kaleidoscope = true;
 
     // Generate base Hilbert curve with randomness
-    const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
-    const spline = new CatmullRomCurve3(basePoints);
-    const samples = spline.getPoints(basePoints.length * subdivisions);
+    // const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
+    // const spline = new CatmullRomCurve3(basePoints);
+    // const samples = spline.getPoints(basePoints.length * subdivisions);
+    //
+    // // Add noise and wave offset
+    // samples.forEach((p, i) => {
+    //     const t = i / samples.length;
+    //     const offset = Math.sin(t * Math.PI * 4) * 0.3 * (params?.rsx ?? 1);
+    //     p.x += (Math.random() - 0.5) * 2 + offset;
+    //     p.y += (Math.random() - 0.5) * 2 + offset * (params?.rsy ?? 1);
+    //     p.z += (Math.random() - 0.5) * 2;
+    // });
 
-    // Add noise and wave offset
-    samples.forEach((p, i) => {
-        const t = i / samples.length;
-        const offset = Math.sin(t * Math.PI * 4) * 0.3 * (params?.rsx ?? 1);
-        p.x += (Math.random() - 0.5) * 2 + offset;
-        p.y += (Math.random() - 0.5) * 2 + offset * (params?.rsy ?? 1);
-        p.z += (Math.random() - 0.5) * 2;
-    });
+
+
+
+
+
+
 
     // Create base geometry
     const geometrySpline = new BufferGeometry().setFromPoints(samples);
-    const baseMaterial = new LineDashedMaterial({
-        scale: 2,
-        color: color,
-        dashSize: 1,
-        gapSize: 0.5
-    });
+    // const baseMaterial = new LineDashedMaterial({
+    //     scale: 2,
+    //     color: color,
+    //     dashSize: 1,
+    //     gapSize: 0.5
+    // });
 
-    // Add original line
-    const originalLine = new Line(geometrySpline, baseMaterial);
-    originalLine.computeLineDistances();
-    group.add(originalLine);
-
-    // Clone and style lines
-    for (let i = 1; i < lineCount; i++) {
-        const clone = originalLine.clone();
-        clone.material = baseMaterial.clone();
-
-        // Positioning
-        // const angle = (Math.PI * 2 * i) / lineCount;
-        // clone.position.x = Math.cos(angle) * spread * i;
-        // clone.position.y = Math.sin(angle) * spread * i;
-
-        // Kaleidoscopic mirroring
-        if (kaleidoscope && i % 2 === 0) {
-            clone.scale.x *= -1;
-            clone.scale.y *= -1;
-        }
-
-        // Color shift
-        const hueShift = (i * 30) % 360;
-        clone.material.color.setHSL(hueShift / 360, 1, 0.5);
-
-        group.add(clone);
-    }
+    // // Add original line
+    // const originalLine = new Line(geometrySpline, baseMaterial);
+    // originalLine.computeLineDistances();
+    // group.add(originalLine);
+    //
+    // // Clone and style lines
+    // for (let i = 1; i < lineCount; i++) {
+    //     const clone = originalLine.clone();
+    //     clone.material = baseMaterial.clone();
+    //
+    //     // Positioning
+    //     // const angle = (Math.PI * 2 * i) / lineCount;
+    //     // clone.position.x = Math.cos(angle) * spread * i;
+    //     // clone.position.y = Math.sin(angle) * spread * i;
+    //
+    //     // Kaleidoscopic mirroring
+    //     if (kaleidoscope && i % 2 === 0) {
+    //         clone.scale.x *= -1;
+    //         clone.scale.y *= -1;
+    //     }
+    //
+    //     // Color shift
+    //     const hueShift = (i * 30) % 360;
+    //     clone.material.color.setHSL(hueShift / 360, 1, 0.5);
+    //
+    //     group.add(clone);
+    // }
 
 }
 
 function generateLinesSetB() {
-    clearGeneratedLines();
-    const parent = ensureLinesParent();
-    const group = new Group();
-    window.generatedLines = group;
-    parent.add(group);
-
-    // Lissajous-style curve set
-    const curves = 1; // reduced ~3x
-    for (let k = 0; k < curves; k++) {
-        const pts = [];
-        const a = 2 + k;
-        const b = 3 + k;
-        const delta = Math.PI / (k + 2);
-        for (let i = 0; i <= 400; i++) {
-            const t = i / 400 * Math.PI * 2;
-            const x = Math.sin(a * t + delta) * 2.5 + k * 0.3;
-            const y = Math.sin(b * t) * 2.5 + k * 0.2;
-            const z = Math.cos((a + b) * t) * 2.5;
-            pts.push(new Vector3(x, y, z));
-        }
-        const g = new BufferGeometry().setFromPoints(pts);
-        const m = new LineDashedMaterial({ color: 0x88ccff, dashSize: 0.6, gapSize: 0.35 });
-        const l = new Line(g, m);
-        l.computeLineDistances();
-        group.add(l);
-    }
+    // clearGeneratedLines();
+    // const parent = ensureLinesParent();
+    // const group = new Group();
+    // window.generatedLines = group;
+    // parent.add(group);
+    //
+    // // Lissajous-style curve set
+    // const curves = 1; // reduced ~3x
+    // for (let k = 0; k < curves; k++) {
+    //     const pts = [];
+    //     const a = 2 + k;
+    //     const b = 3 + k;
+    //     const delta = Math.PI / (k + 2);
+    //     for (let i = 0; i <= 400; i++) {
+    //         const t = i / 400 * Math.PI * 2;
+    //         const x = Math.sin(a * t + delta) * 2.5 + k * 0.3;
+    //         const y = Math.sin(b * t) * 2.5 + k * 0.2;
+    //         const z = Math.cos((a + b) * t) * 2.5;
+    //         pts.push(new Vector3(x, y, z));
+    //     }
+    //     const g = new BufferGeometry().setFromPoints(pts);
+    //     const m = new LineDashedMaterial({ color: 0x88ccff, dashSize: 0.6, gapSize: 0.35 });
+    //     const l = new Line(g, m);
+    //     l.computeLineDistances();
+    //     group.add(l);
+    // }
 }
 
 // Trail line generator (Hilbert-based with clones and color shifts)
 function generateLinesTrail() {
-    try {
-        const recursion = 1;
-        const subdivisions = 5;
-        const lineCount = 4; // reduced ~3x
-        const spread = 0.5;
-        const kaleidoscope = true;
-        const baseColor = new Color(0xff00ff);
-
-        const parent = ensureLinesParent();
-        if (!window.generatedLines) {
-            window.generatedLines = new Group();
-            parent.add(window.generatedLines);
-        } else if (!window.generatedLines.parent) {
-            parent.add(window.generatedLines);
-        }
-
-        const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
-        const spline = new CatmullRomCurve3(basePoints);
-        const samples = spline.getPoints(basePoints.length * subdivisions);
-
-        const rsx = (typeof params !== 'undefined' && params && params.rsx) ? params.rsx : 1;
-        const rsy = (typeof params !== 'undefined' && params && params.rsy) ? params.rsy : 1;
-        samples.forEach((p, i) => {
-            const t = i / samples.length;
-            const offset = Math.sin(t * Math.PI * 4) * 0.3 * rsx;
-            p.x += (Math.random() - 0.5) * 2 + offset;
-            p.y += (Math.random() - 0.5) * 2 + offset * rsy;
-            p.z += (Math.random() - 0.5) * 2;
-        });
-
-        const geometrySpline = new BufferGeometry().setFromPoints(samples);
-        const baseMaterial = new LineDashedMaterial({
-            scale: 2,
-            color: baseColor,
-            dashSize: 1,
-            gapSize: 0.5,
-            transparent: true,
-            opacity: 1
-        });
-
-        const originalLine = new Line(geometrySpline, baseMaterial);
-        originalLine.computeLineDistances();
-        window.generatedLines.add(originalLine);
-
-        for (let i = 1; i < lineCount; i++) {
-            const clone = originalLine.clone();
-            clone.material = baseMaterial.clone();
-            const angle = (Math.PI * 2 * i) / lineCount;
-            clone.position.x = Math.cos(angle) * spread * i;
-            clone.position.y = Math.sin(angle) * spread * i;
-            if (kaleidoscope && i % 2 === 0) {
-                clone.scale.x *= -1;
-                clone.scale.y *= -1;
-            }
-            const hueShift = (i * 30) % 360;
-            clone.material.color.setHSL(hueShift / 360, 1, 0.5);
-            window.generatedLines.add(clone);
-        }
-    } catch(e) { console.error('generateLinesTrail failed', e); }
+    // try {
+    //     const recursion = 1;
+    //     const subdivisions = 5;
+    //     const lineCount = 4; // reduced ~3x
+    //     const spread = 0.5;
+    //     const kaleidoscope = true;
+    //     const baseColor = new Color(0xff00ff);
+    //
+    //     const parent = ensureLinesParent();
+    //     if (!window.generatedLines) {
+    //         window.generatedLines = new Group();
+    //         parent.add(window.generatedLines);
+    //     } else if (!window.generatedLines.parent) {
+    //         parent.add(window.generatedLines);
+    //     }
+    //
+    //     const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
+    //     const spline = new CatmullRomCurve3(basePoints);
+    //     const samples = spline.getPoints(basePoints.length * subdivisions);
+    //
+    //     const rsx = (typeof params !== 'undefined' && params && params.rsx) ? params.rsx : 1;
+    //     const rsy = (typeof params !== 'undefined' && params && params.rsy) ? params.rsy : 1;
+    //     samples.forEach((p, i) => {
+    //         const t = i / samples.length;
+    //         const offset = Math.sin(t * Math.PI * 4) * 0.3 * rsx;
+    //         p.x += (Math.random() - 0.5) * 2 + offset;
+    //         p.y += (Math.random() - 0.5) * 2 + offset * rsy;
+    //         p.z += (Math.random() - 0.5) * 2;
+    //     });
+    //
+    //     const geometrySpline = new BufferGeometry().setFromPoints(samples);
+    //     const baseMaterial = new LineDashedMaterial({
+    //         scale: 2,
+    //         color: baseColor,
+    //         dashSize: 1,
+    //         gapSize: 0.5,
+    //         transparent: true,
+    //         opacity: 1
+    //     });
+    //
+    //     const originalLine = new Line(geometrySpline, baseMaterial);
+    //     originalLine.computeLineDistances();
+    //     window.generatedLines.add(originalLine);
+    //
+    //     for (let i = 1; i < lineCount; i++) {
+    //         const clone = originalLine.clone();
+    //         clone.material = baseMaterial.clone();
+    //         const angle = (Math.PI * 2 * i) / lineCount;
+    //         clone.position.x = Math.cos(angle) * spread * i;
+    //         clone.position.y = Math.sin(angle) * spread * i;
+    //         if (kaleidoscope && i % 2 === 0) {
+    //             clone.scale.x *= -1;
+    //             clone.scale.y *= -1;
+    //         }
+    //         const hueShift = (i * 30) % 360;
+    //         clone.material.color.setHSL(hueShift / 360, 1, 0.5);
+    //         window.generatedLines.add(clone);
+    //     }
+    // } catch(e) { console.error('generateLinesTrail failed', e); }
 }
 
 function fetchSculpture(id) {
@@ -3306,8 +3346,7 @@ function handleGamepadTriggers(gamepad) {
             if (afterimagePass && afterimagePass.uniforms) {
                 afterimagePass.enabled = true;
                 const base = 0.94;
-                const strong = Math.max(0.6, base - l2 * 0.5);
-                afterimagePass.uniforms['damp'].value = strong;
+                afterimagePass.uniforms['damp'].value = Math.max(0.6, base - l2 * 0.5);
             }
             // Bokeh focal depth 40..50
             effectController.focalDepth = 40 + l2 * 10;
@@ -3990,12 +4029,12 @@ function updateRGBShiftWithGamepad() {
 
     // D-pad controls for RGB shift
     if (window.gamepadState.dpadLeft) {
-        params.rsx = Math.max(0, params.rsx - 0.001);
+        params.rsx = Math.max(0, params.rsx - 0.01);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
     if (window.gamepadState.dpadRight) {
-        params.rsx = Math.min(0.01, params.rsx + 0.001);
+        params.rsx = Math.min(1, params.rsx + 0.01);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
@@ -4285,6 +4324,12 @@ function render(time) {
 		// Render scene into color texture
 		renderer.setRenderTarget(rtTextureColor);
 		renderer.clear();
+
+        // fps limit?
+        // setTimeout( function() {
+        //     requestAnimationFrame( animate );
+        // }, 1000 / 30 );
+
 		renderer.render(scene, camera);
 
 		// Render depth into texture

@@ -9,14 +9,14 @@ module.exports = {
         port: 8080,
         host: 'localhost'
     },
-    publicPath: '/',
+    publicPath: '/public',
     pwa: {
       workboxOptions: {
         skipWaiting: true,
         clientsClaim: true,
         exclude: ['_redirects'],
         runtimeCaching: [
-          {
+            {
             // Use the NetworkFirst strategy for HTML files
             urlPattern: /index\.html/,
             handler: 'NetworkFirst',
@@ -25,9 +25,9 @@ module.exports = {
               cacheName: 'html-cache',
             },
           },
-          {
+            {
             // Use the CacheFirst strategy for other static assets
-            urlPattern: /\.(?:js|css|png|jpg|jpeg|svg)$/,
+            urlPattern: /\.(?:js|css|png|jpg|jpeg|svg|sp)$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'static-assets',

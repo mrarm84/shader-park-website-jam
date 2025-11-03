@@ -110,9 +110,8 @@ export default {
         let processedInput = input;
 
 
-        const patternglsl = /glslSDF/;
-        const pattern = /^let\s+audioLevel/;
-        const pattern2 = /^\/\/let\s+audioLevel/;
+        const pattern = /let\s+audioLevel/;
+        const pattern2 = /\/\/let\s+audioLevel/;
         if (!pattern.test(processedInput) && !pattern2.test(processedInput)) {
          processedInput = '\/\/let audioLevel = input();\n' + processedInput;
         }

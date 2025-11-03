@@ -405,7 +405,7 @@ export default {
         const random = this.sculptures[Math.floor(Math.random() * this.sculptures.length)];
 
         // Flash strong bokeh blur before switching
-        this.enableBokehFlash();
+        // this.enableBokehFlash();
 
         this.$store.dispatch('fetchSculpture', { id: random.id }).then(sculpture => {
           if (!sculpture || !sculpture.shaderSource) throw new Error('No shader in sculpture');
@@ -413,9 +413,8 @@ export default {
           // Insert custom code before audioLevel input for Shader Park sketches
           let processedShaderSource = sculpture.shaderSource;
 
-          const patternglsl = /glslSDF/;
-          const pattern = /^let\s+audioLevel/;
-          const pattern2 = /^\/\/let\s+audioLevel/;
+          const pattern = /let\s+audioLevel/;
+          const pattern2 = /\/\/let\s+audioLevel/;
           if (!pattern.test(processedShaderSource) && !pattern2.test(processedShaderSource)) {
            processedShaderSource = '\/\/let audioLevel = input();' + processedShaderSource;
           }
@@ -512,10 +511,9 @@ export default {
                 this.$store.commit('setUnsavedChanges', { [this.selectedSculpture.id]: false });
             }
           let processedCode = newCode;
-          const patternglsl = /glslSDF/;
-          const pattern = /^let\s+audioLevel/;
-          const pattern2 = /^\/\/let\s+audioLevel/;
-          if (!patternglsl.test(processedCode) && !pattern.test(processedCode) && !pattern2.test(processedCode)) {
+          const pattern = /let\s+audioLevel/;
+          const pattern2 = /\/\/let\s+audioLevel/;
+          if (!pattern.test(processedCode) && !pattern2.test(processedCode)) {
             processedCode = 'let audioLevel = input(0.5);\n' + processedCode;
           }
 
@@ -563,9 +561,8 @@ export default {
                 //
                 // }
               console.log('this.type2', this.type)
-              const patternglsl = /glslSDF/;
-              const pattern = /^let\s+audioLevel/;
-              const pattern2 = /^\/\/let\s+audioLevel/;
+              const pattern = /let\s+audioLevel/;
+              const pattern2 = /\/\/let\s+audioLevel/;
               if (!pattern.test(processedCode) && !pattern2.test(processedCode)) {
                 processedCode = '\/\/let audioLevel = input();\n' + processedCode;
               }
