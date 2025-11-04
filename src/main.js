@@ -249,6 +249,91 @@ const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight,
 window.camera = camera;
 
 let renderer, controls, mapControls, canvas, canvasContainer, composer, renderPass, rgbShiftPass, filmPass, halftonePass, dotPass, afterimagePass;
+let redLight, blueLight, greenLight, purpleLight, orangeLight;
+let asciiPass, asciiEnabled = false;
+let invertPass, pixelatePass;
+
+// Morphing effect variables
+let morphingEffects = {};
+let morphingActive = false;
+
+// Morphing system for smooth effect transitions
+function startMorphingEffect(effectName, targetPass, targetValue = 1.0, duration = 1000) {
+    const startTime = performance.now();
+    const startValue = targetPass.enabled ? 1.0 : 0.0;
+
+    morphingEffects[effectName] = {
+        pass: targetPass,
+        startValue: startValue,
+        targetValue: targetValue,
+        startTime: startTime,
+        duration: duration,
+        active: true
+    };
+
+    // Ensure the pass is enabled during morphing
+    targetPass.enabled = true;
+
+    if (!morphingActive) {
+        morphingActive = true;
+        animateMorphing();
+    }
+}
+
+function animateMorphing() {
+    if (!morphingActive) return;
+
+    const currentTime = performance.now();
+    let hasActiveMorphs = false;
+
+    for (const effectName in morphingEffects) {
+        const morph = morphingEffects[effectName];
+        if (!morph.active) continue;
+
+        const elapsed = currentTime - morph.startTime;
+        const progress = Math.min(elapsed / morph.duration, 1.0);
+
+        // Smooth easing function (ease-in-out)
+        const easedProgress = progress < 0.5
+            ? 2 * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+        const currentValue = morph.startValue + (morph.targetValue - morph.startValue) * easedProgress;
+
+        // Apply morphing value to different effect types
+        if (morph.pass === rgbShiftPass) {
+            morph.pass.uniforms.amount.value = currentValue * 0.1; // Scale for chromatic aberration
+        } else if (morph.pass === vignettePass) {
+            morph.pass.uniforms.darkness.value = 1.0 + currentValue * 1.5; // Scale for vignette
+        } else if (morph.pass === invertPass) {
+            // For color inversion, control the intensity uniform
+            morph.pass.uniforms.intensity.value = currentValue;
+        } else if (morph.pass === pixelatePass) {
+            morph.pass.uniforms.uPixelSize.value = 4.0 + (1.0 - currentValue) * 12.0; // Higher pixel size when fading out
+        } else if (morph.pass === asciiPass) {
+            // For ASCII, we morph the font size or opacity
+            morph.pass.uniforms.uFontSize.value = Math.max(1, 8 * currentValue);
+        }
+
+        if (progress >= 1.0) {
+            // Morphing complete
+            morph.active = false;
+
+            // If target value is 0, disable the effect
+            if (morph.targetValue === 0.0) {
+                morph.pass.enabled = false;
+            }
+        } else {
+            hasActiveMorphs = true;
+        }
+    }
+
+    if (hasActiveMorphs) {
+        requestAnimationFrame(animateMorphing);
+    } else {
+        morphingActive = false;
+    }
+}
 // Camera mode params
 window.icosaViewEnabled = false;
 window.icosaVertices = null;
@@ -332,6 +417,9 @@ let loadingTextVisible = false;
 // Setup GUI controls for halftone blending
 let halftoneGUI;
 let halftoneController; // Make accessible for external sync
+
+// Setup GUI controls for ASCII effect
+let asciiGUI;
 
 // SP Examples cycling
 let spExamplesIndex = 0;
@@ -575,6 +663,46 @@ function setupBokehGUI() {
     gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
 
     matChanger();
+}
+
+// Setup GUI controls for ASCII effect
+function setupAsciiGUI() {
+    if (asciiGUI) asciiGUI.destroy();
+
+    asciiGUI = new GUI({
+        title: 'ASCII Effect'
+    });
+
+    // Position ASCII GUI
+    asciiGUI.domElement.style.position = 'absolute';
+    asciiGUI.domElement.style.top = '600px';
+    asciiGUI.domElement.style.left = '10px';
+
+    const asciiController = {
+        enabled: false,
+        fontSize: 8.0,
+        characters: ' .:-=+*#%@',
+        samplingMode: 'simple',
+        hueRandomness: 0.0
+    };
+
+    const updateAscii = function() {
+        if (asciiPass) {
+            asciiPass.enabled = asciiController.enabled;
+            asciiPass.uniforms.uFontSize.value = asciiController.fontSize;
+            asciiPass.uniforms.uCharacters.value = asciiController.characters;
+            asciiPass.uniforms.uSamplingMode.value = asciiController.samplingMode === 'accurate' ? 1 : 0;
+            asciiPass.uniforms.uHueRandomness.value = asciiController.hueRandomness;
+        }
+    };
+
+    asciiGUI.add(asciiController, 'enabled').onChange(updateAscii);
+    asciiGUI.add(asciiController, 'fontSize', [6, 8, 12, 16, 32]).name('Font Size').onChange(updateAscii);
+    asciiGUI.add(asciiController, 'characters').name('Characters').onChange(updateAscii);
+    asciiGUI.add(asciiController, 'samplingMode', ['simple', 'accurate']).name('Sampling').onChange(updateAscii);
+    asciiGUI.add(asciiController, 'hueRandomness', 0.0, 1.0, 0.01).name('Hue Randomness').onChange(updateAscii);
+
+    updateAscii();
 }
 
 // Color-preserving dot shader
@@ -1431,65 +1559,19 @@ function handleKeyDown(e) {
             try { generateLinesSetA(0xffffff, 0xff00ff); } catch(err) { console.error(err); }
             break;
         case 'x':
-            // With Shift: mirror X, without: generate lines set B
-            if (e.shiftKey) {
-                mirrorState.x = true;
-                if (mirrorPass && mirrorPass.uniforms) {
-                    mirrorPass.enabled = true;
-                    mirrorPass.uniforms['mirrorX'].value = mirrorState.x ? 1 : 0;
-                    mirrorPass.uniforms['mirrorY'].value = mirrorState.y ? 1 : 0;
-                }
-            } else {
-                try { generateLinesSetB(); } catch(err) { console.error(err); }
-                // Add aggressive halftone/dot trails
-                if (halftonePass && halftonePass.uniforms) {
-                    halftonePass.enabled = true;
-                    if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
-                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 2.4;
-                    syncHalftoneGUI();
-                    if (halftonePass.uniforms['blending']) halftonePass.uniforms['blending'].value = 1.0;
-                }
-                if (dotPass && dotPass.uniforms) {
-                    dotPass.enabled = true;
-                    dotPass.uniforms['angle'].value = Math.PI * 0.33;
-                    dotPass.uniforms['scale'].value = 0.3;
-                }
-                if (afterimagePass && afterimagePass.uniforms) {
-                    afterimagePass.enabled = true;
-                    afterimagePass.uniforms['damp'].value = 0.78;
-                }
+            // Toggle pixelation effect with morphing
+            if (pixelatePass) {
+                const targetValue = pixelatePass.enabled ? 0.0 : 1.0;
+                startMorphingEffect('pixelation', pixelatePass, targetValue, 1000);
+                console.log('Morphing pixelation:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case 'c':
-            // With Shift: mirror Y, without: clear generated lines
-            if (e.shiftKey) {
-                mirrorState.y = true;
-                if (mirrorPass && mirrorPass.uniforms) {
-                    mirrorPass.enabled = true;
-                    mirrorPass.uniforms['mirrorX'].value = mirrorState.x ? 1 : 0;
-                    mirrorPass.uniforms['mirrorY'].value = mirrorState.y ? 1 : 0;
-                }
-            } else {
-                try { clearGeneratedLines(); } catch(err) { console.error(err); }
-                // Another "wtf" combo: strong RGB shift + rotated dots
-                if (rgbShiftPass && rgbShiftPass.uniforms) {
-                    rgbShiftPass.enabled = true;
-                    rgbShiftPass.uniforms['amount'].value = 0.22;
-                    if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = 0.22;
-                    rgbShiftPass.uniforms['angle'].value = Math.PI * 0.5;
-                }
-                if (dotPass && dotPass.uniforms) {
-                    dotPass.enabled = true;
-                    dotPass.uniforms['angle'].value = Math.PI * 0.5;
-                    dotPass.uniforms['scale'].value = 0.25;
-                }
-                if (filmPass && filmPass.uniforms) {
-                    filmPass.enabled = true;
-                    filmPass.uniforms['nIntensity'].value = 0.6;
-                    filmPass.uniforms['sIntensity'].value = 0.12;
-                    filmPass.uniforms['sCount'].value = 3072;
-                    filmPass.uniforms['grayscale'].value = false;
-                }
+            // Toggle color inversion effect with morphing
+            if (invertPass) {
+                const targetValue = invertPass.enabled ? 0.0 : 1.0;
+                startMorphingEffect('colorInversion', invertPass, targetValue, 1000);
+                console.log('Morphing color inversion:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case '1': {
@@ -1566,23 +1648,29 @@ function handleKeyDown(e) {
             break;
         }
         case 'v':
-            // Shift+Z emulation: toggle both X and Y mirrors
-            if (e.shiftKey) {
-                mirrorState.x = true; mirrorState.y = true;
-                if (mirrorPass && mirrorPass.uniforms) {
-                    mirrorPass.enabled = true;
-                    mirrorPass.uniforms['mirrorX'].value = mirrorState.x ? 1 : 0;
-                    mirrorPass.uniforms['mirrorY'].value = mirrorState.y ? 1 : 0;
-                }
-            } else {
-                if (afterimagePass) afterimagePass.enabled = true;
+            // Toggle vignette effect with morphing
+            if (vignettePass) {
+                const targetValue = vignettePass.enabled ? 0.0 : 1.0;
+                startMorphingEffect('vignette', vignettePass, targetValue, 1000);
+                console.log('Morphing vignette:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case 'b':
-            halftonePulse(2.0, 0.7, 350, 350, 120);
+            // Chromatic aberration effect with morphing
+            if (rgbShiftPass) {
+                const targetValue = rgbShiftPass.enabled ? 0.0 : 1.0;
+                startMorphingEffect('chromaticAberration', rgbShiftPass, targetValue, 1000);
+                console.log('Morphing chromatic aberration:', targetValue > 0 ? 'ON' : 'OFF');
+            }
             break;
         case 'n':
-            dotPulse(Math.PI / 4, 0.5, 250, 250, 80);
+            // Toggle ASCII effect with morphing
+            if (asciiPass) {
+                const targetValue = asciiPass.enabled ? 0.0 : 1.0;
+                startMorphingEffect('ascii', asciiPass, targetValue, 1000);
+                asciiEnabled = targetValue > 0;
+                console.log('Morphing ASCII effect:', targetValue > 0 ? 'ON' : 'OFF');
+            }
             break;
         case 'm':
             filmPulse(0.5, 0.12, 2200, 220);
@@ -2531,11 +2619,238 @@ renderer.setClearColor(0xffffff, 1);
 	composer.addPass(afterimagePass);
 	composer.addPass(bokehPass);
 
+	// Create ASCII pass
+	const asciiShader = {
+		uniforms: {
+			'tDiffuse': { value: null },
+			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+			'uFontSize': { value: 8.0 },
+			'uCharacters': { value: ' .:-=+*#%@' },
+			'uHueRandomness': { value: 0.0 },
+			'uSamplingMode': { value: 0 } // 0: simple, 1: accurate
+		},
+		vertexShader: `
+			varying vec2 vUv;
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			}
+		`,
+		fragmentShader: `
+			uniform sampler2D tDiffuse;
+			uniform vec2 uResolution;
+			uniform float uFontSize;
+			uniform float uHueRandomness;
+			uniform int uSamplingMode;
+			varying vec2 vUv;
+
+			// Function to convert RGB to HSV
+			vec3 rgb2hsv(vec3 c) {
+				vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+				vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+				vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+				float d = q.x - min(q.w, q.y);
+				float e = 1.0e-10;
+				return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+			}
+
+			// Function to convert HSV to RGB
+			vec3 hsv2rgb(vec3 c) {
+				vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+				vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+				return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+			}
+
+			// Pseudo-random function
+			float random(vec2 st) {
+				return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+			}
+
+			void main() {
+				vec2 uv = vUv;
+				vec2 pixelCoord = uv * uResolution;
+				vec2 charCoord = floor(pixelCoord / uFontSize) * uFontSize;
+				vec2 localCoord = mod(pixelCoord, uFontSize) / uFontSize;
+
+				vec4 texColor;
+
+				if (uSamplingMode == 0) {
+					// Simple sampling - sample at character center
+					texColor = texture2D(tDiffuse, charCoord / uResolution);
+				} else {
+					// Accurate sampling - sample multiple points for better quality
+					vec2 sampleUV = charCoord / uResolution;
+					vec2 texelSize = 1.0 / uResolution;
+
+					// Sample 4 corners for better accuracy
+					vec4 c1 = texture2D(tDiffuse, sampleUV);
+					vec4 c2 = texture2D(tDiffuse, sampleUV + vec2(texelSize.x, 0.0));
+					vec4 c3 = texture2D(tDiffuse, sampleUV + vec2(0.0, texelSize.y));
+					vec4 c4 = texture2D(tDiffuse, sampleUV + texelSize);
+
+					texColor = (c1 + c2 + c3 + c4) * 0.25;
+				}
+
+				float brightness = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
+
+				// Create ASCII pattern based on brightness and character position
+				float ascii = 0.0;
+
+				// Map brightness to character index
+				int charIndex = int(brightness * float(uCharacters.length()));
+				charIndex = clamp(charIndex, 0, uCharacters.length() - 1);
+
+				// Simple character rendering based on character index
+				// For now, we'll use different patterns based on character brightness level
+				float charBrightness = float(charIndex) / float(uCharacters.length());
+
+				// Create different patterns based on character index
+				if (charIndex == 0) {
+					// '.' - single dot
+					ascii = step(localCoord.x, 0.2) * step(localCoord.y, 0.2) * step(0.8, localCoord.x) * step(0.8, localCoord.y);
+				} else if (charIndex <= 2) {
+					// ':' - two dots
+					float dot1 = step(localCoord.x, 0.2) * step(localCoord.y, 0.2) * step(0.8, localCoord.x) * step(0.3, localCoord.y);
+					float dot2 = step(localCoord.x, 0.2) * step(localCoord.y, 0.7) * step(0.8, localCoord.x) * step(0.3, localCoord.y);
+					ascii = dot1 + dot2;
+				} else if (charIndex <= 5) {
+					// '-' - horizontal line
+					ascii = step(localCoord.y, 0.6) * step(0.4, localCoord.y);
+				} else if (charIndex <= 8) {
+					// '+' - cross
+					float hLine = step(localCoord.y, 0.6) * step(0.4, localCoord.y);
+					float vLine = step(localCoord.x, 0.6) * step(0.4, localCoord.x);
+					ascii = hLine + vLine;
+				} else {
+					// Full block for brighter characters
+					ascii = step(localCoord.x, 0.9) * step(localCoord.y, 0.9);
+				}
+
+				ascii *= charBrightness;
+
+				vec3 finalColor = vec3(ascii);
+
+				// Apply hue randomization if enabled
+				if (uHueRandomness > 0.0) {
+					vec3 hsv = rgb2hsv(finalColor);
+					float hueShift = (random(charCoord) - 0.5) * uHueRandomness;
+					hsv.x = fract(hsv.x + hueShift);
+					finalColor = hsv2rgb(hsv);
+				}
+
+				gl_FragColor = vec4(finalColor, texColor.a);
+			}
+		`
+	};
+
+	asciiPass = new ShaderPass(asciiShader);
+	asciiPass.enabled = false; // Start disabled
+	composer.addPass(asciiPass);
+
+	// Create vignette pass for V key
+	const vignetteShader = {
+		uniforms: {
+			'tDiffuse': { value: null },
+			'offset': { value: 1.0 },
+			'darkness': { value: 1.5 }
+		},
+		vertexShader: `
+			varying vec2 vUv;
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			}
+		`,
+		fragmentShader: `
+			uniform sampler2D tDiffuse;
+			uniform float offset;
+			uniform float darkness;
+			varying vec2 vUv;
+
+			void main() {
+				vec4 texColor = texture2D(tDiffuse, vUv);
+				vec2 uv = (vUv - vec2(0.5)) * vec2(offset);
+				float vignette = 1.0 - dot(uv, uv) * darkness;
+				vignette = clamp(vignette, 0.0, 1.0);
+				gl_FragColor = texColor * vignette;
+			}
+		`
+	};
+
+	vignettePass = new ShaderPass(vignetteShader);
+	vignettePass.enabled = false;
+	composer.addPass(vignettePass);
+
+	// Create color inversion pass for C key
+	const invertShader = {
+		uniforms: {
+			'tDiffuse': { value: null },
+			'intensity': { value: 0.0 }
+		},
+		vertexShader: `
+			varying vec2 vUv;
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			}
+		`,
+		fragmentShader: `
+			uniform sampler2D tDiffuse;
+			uniform float intensity;
+			varying vec2 vUv;
+
+			void main() {
+				vec4 texColor = texture2D(tDiffuse, vUv);
+				vec4 inverted = vec4(1.0 - texColor.rgb, texColor.a);
+				gl_FragColor = mix(texColor, inverted, intensity);
+			}
+		`
+	};
+
+	invertPass = new ShaderPass(invertShader);
+	invertPass.enabled = false;
+	composer.addPass(invertPass);
+
+	// Create pixelation pass for X key
+	const pixelateShader = {
+		uniforms: {
+			'tDiffuse': { value: null },
+			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+			'uPixelSize': { value: 4.0 }
+		},
+		vertexShader: `
+			varying vec2 vUv;
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			}
+		`,
+		fragmentShader: `
+			uniform sampler2D tDiffuse;
+			uniform vec2 uResolution;
+			uniform float uPixelSize;
+			varying vec2 vUv;
+
+			void main() {
+				vec2 pixelCoord = floor(vUv * uResolution / uPixelSize) * uPixelSize / uResolution;
+				vec4 texColor = texture2D(tDiffuse, pixelCoord);
+				gl_FragColor = texColor;
+			}
+		`
+	};
+
+	pixelatePass = new ShaderPass(pixelateShader);
+	pixelatePass.enabled = false;
+	composer.addPass(pixelatePass);
+
 	// Setup GUI controls for bokeh effect
 	setupBokehGUI();
 
 	// Setup GUI controls for halftone blending
 	setupHalftoneGUI();
+
+	// Setup GUI controls for ASCII effect
+	setupAsciiGUI();
 
 
 	// Apply initial background according to bgMode
@@ -2579,7 +2894,32 @@ renderer.setClearColor(0xffffff, 1);
 	camera.position.set(6, 2.5, 4);
 	// controls.target.set(6, 0, 0);
 
-	scene.add(hemisphereLight);
+    scene.add(hemisphereLight);
+
+    // Add colorful accent lights (increased intensity for visibility)
+    redLight = new THREE.PointLight(0xff0040, 5, 15);
+    redLight.position.set(-3, 2, 3);
+
+    blueLight = new THREE.PointLight(0x0040ff, 5, 15);
+    blueLight.position.set(3, 2, -3);
+
+    greenLight = new THREE.PointLight(0x40ff00, 5, 15);
+    greenLight.position.set(0, 3, 3);
+
+    purpleLight = new THREE.PointLight(0x8000ff, 4, 12);
+    purpleLight.position.set(-2, 1, -2);
+
+    orangeLight = new THREE.PointLight(0xff8000, 4, 12);
+    orangeLight.position.set(2, 1, 2);
+
+    console.log('Colorful lights created:', { redLight, blueLight, greenLight, purpleLight, orangeLight });
+
+    // Add lights to scene
+    scene.add(redLight);
+    scene.add(blueLight);
+    scene.add(greenLight);
+    scene.add(purpleLight);
+    scene.add(orangeLight);
 
 
     const loader = new FontLoader();
@@ -4075,6 +4415,29 @@ function render(time) {
 	}
 
     handleGamepadInput();
+
+    // Animate colorful lights
+    const timeInSeconds = time * 0.001; // Convert to seconds
+
+    // Animate light positions in circular patterns
+    redLight.position.x = -3 + Math.sin(timeInSeconds * 0.5) * 0.5;
+    redLight.position.z = 3 + Math.cos(timeInSeconds * 0.5) * 0.5;
+    redLight.intensity = 2 + Math.sin(timeInSeconds * 2) * 0.5;
+
+    blueLight.position.x = 3 + Math.sin(timeInSeconds * 0.7) * 0.3;
+    blueLight.position.z = -3 + Math.cos(timeInSeconds * 0.7) * 0.3;
+    blueLight.intensity = 2 + Math.cos(timeInSeconds * 1.8) * 0.5;
+
+    greenLight.position.y = 3 + Math.sin(timeInSeconds * 0.3) * 0.2;
+    greenLight.intensity = 2 + Math.sin(timeInSeconds * 2.5) * 0.3;
+
+    purpleLight.position.x = -2 + Math.sin(timeInSeconds * 1.2) * 0.8;
+    purpleLight.position.y = 1 + Math.cos(timeInSeconds * 1.2) * 0.3;
+    purpleLight.intensity = 1.5 + Math.cos(timeInSeconds * 3) * 0.3;
+
+    orangeLight.position.z = 2 + Math.cos(timeInSeconds * 0.8) * 0.6;
+    orangeLight.position.y = 1 + Math.sin(timeInSeconds * 0.8) * 0.2;
+    orangeLight.intensity = 1.5 + Math.sin(timeInSeconds * 2.2) * 0.3;
 
     // Update audio
     if (audioInitialized) {
