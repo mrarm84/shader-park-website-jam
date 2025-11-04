@@ -257,8 +257,79 @@ let invertPass, pixelatePass;
 let morphingEffects = {};
 let morphingActive = false;
 
+// Enhanced easing functions for smoother morphing
+function smoothEasing(t) {
+    // Smoothstep - creates very smooth S-curve
+    return t * t * (3.0 - 2.0 * t);
+}
+
+function elasticEasing(t) {
+    // Elastic easing for bouncy, organic feel
+    const c4 = (2 * Math.PI) / 3;
+    return t === 0 ? 0 : t === 1 ? 1 : -Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+}
+
+// Gaussian blur shader for really blurry morphs
+const blurShader = {
+    uniforms: {
+        'tDiffuse': { value: null },
+        'blurAmount': { value: 0.0 },
+        'resolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float blurAmount;
+        uniform vec2 resolution;
+        varying vec2 vUv;
+
+        // Gaussian blur kernel
+        vec4 gaussianBlur(sampler2D tex, vec2 uv, float radius) {
+            vec4 color = vec4(0.0);
+            float total = 0.0;
+
+            // Adaptive kernel size based on blur amount
+            float kernelSize = min(radius * 2.0 + 1.0, 7.0);
+
+            for(float x = -kernelSize; x <= kernelSize; x += 1.0) {
+                for(float y = -kernelSize; y <= kernelSize; y += 1.0) {
+                    vec2 offset = vec2(x, y) / resolution;
+                    float dist = length(vec2(x, y));
+                    float weight = exp(-(dist * dist) / (2.0 * radius * radius + 0.1));
+                    color += texture2D(tex, uv + offset * blurAmount * 0.1) * weight;
+                    total += weight;
+                }
+            }
+
+            return color / total;
+        }
+
+        void main() {
+            vec4 original = texture2D(tDiffuse, vUv);
+
+            if (blurAmount > 0.0) {
+                vec4 blurred = gaussianBlur(tDiffuse, vUv, blurAmount);
+                // Mix based on blur amount for smoother transitions
+                float mixFactor = smoothstep(0.0, 3.0, blurAmount);
+                gl_FragColor = mix(original, blurred, mixFactor);
+            } else {
+                gl_FragColor = original;
+            }
+        }
+    `
+};
+
+// Blur pass for morphing transitions
+let blurPass;
+
 // Morphing system for smooth effect transitions
-function startMorphingEffect(effectName, targetPass, targetValue = 1.0, duration = 1000) {
+function startMorphingEffect(effectName, targetPass, targetValue = 1.0, duration = 1000, useBlur = false) {
     const startTime = performance.now();
     const startValue = targetPass.enabled ? 1.0 : 0.0;
 
@@ -268,16 +339,90 @@ function startMorphingEffect(effectName, targetPass, targetValue = 1.0, duration
         targetValue: targetValue,
         startTime: startTime,
         duration: duration,
+        useBlur: useBlur,
         active: true
     };
 
     // Ensure the pass is enabled during morphing
     targetPass.enabled = true;
 
+    // Enable blur if requested
+    if (useBlur && blurPass) {
+        blurPass.enabled = true;
+    }
+
     if (!morphingActive) {
         morphingActive = true;
         animateMorphing();
     }
+}
+
+// Multi-stage blurry morphing for cinematic transitions
+function startBlurryMorph(effectName, targetPass, targetValue, duration = 1500) {
+    const stages = ['fadeInBlur', 'morphEffect', 'fadeOutBlur'];
+    let currentStage = 0;
+
+    function executeStage() {
+        switch(stages[currentStage]) {
+            case 'fadeInBlur':
+                // Stage 1: Fade in blur (0-300ms) - creates dreamy entrance
+                if (blurPass) {
+                    blurPass.enabled = true;
+                    animateBlur(0, 2.5, 300, () => {
+                        currentStage++;
+                        executeStage();
+                    });
+                } else {
+                    currentStage++;
+                    executeStage();
+                }
+                break;
+
+            case 'morphEffect':
+                // Stage 2: Morph the actual effect with heavy blur (300-1200ms)
+                startMorphingEffect(effectName, targetPass, targetValue, 900, true);
+                setTimeout(() => {
+                    currentStage++;
+                    executeStage();
+                }, 900);
+                break;
+
+            case 'fadeOutBlur':
+                // Stage 3: Fade out blur (1200-1500ms) - reveals the final result
+                if (blurPass) {
+                    animateBlur(2.5, 0, 300, () => {
+                        blurPass.enabled = false;
+                    });
+                }
+                break;
+        }
+    }
+
+    executeStage();
+}
+
+// Animate blur intensity for smooth transitions
+function animateBlur(from, to, duration, callback) {
+    const startTime = performance.now();
+    const startValue = from;
+
+    function animate() {
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1.0);
+        const eased = smoothEasing(progress);
+
+        const currentBlur = startValue + (to - startValue) * eased;
+        if (blurPass) {
+            blurPass.uniforms.blurAmount.value = currentBlur;
+        }
+
+        if (progress < 1.0) {
+            requestAnimationFrame(animate);
+        } else {
+            callback();
+        }
+    }
+    animate();
 }
 
 function animateMorphing() {
@@ -293,26 +438,30 @@ function animateMorphing() {
         const elapsed = currentTime - morph.startTime;
         const progress = Math.min(elapsed / morph.duration, 1.0);
 
-        // Smooth easing function (ease-in-out)
-        const easedProgress = progress < 0.5
-            ? 2 * progress * progress
-            : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        // Use enhanced smooth easing for blurrier morphs
+        const easedProgress = smoothEasing(progress);
 
         const currentValue = morph.startValue + (morph.targetValue - morph.startValue) * easedProgress;
 
         // Apply morphing value to different effect types
         if (morph.pass === rgbShiftPass) {
-            morph.pass.uniforms.amount.value = currentValue * 0.1; // Scale for chromatic aberration
+            morph.pass.uniforms.amount.value = currentValue * 0.15; // Enhanced chromatic aberration
         } else if (morph.pass === vignettePass) {
-            morph.pass.uniforms.darkness.value = 1.0 + currentValue * 1.5; // Scale for vignette
+            morph.pass.uniforms.darkness.value = 1.0 + currentValue * 2.0; // Stronger vignette
         } else if (morph.pass === invertPass) {
             // For color inversion, control the intensity uniform
             morph.pass.uniforms.intensity.value = currentValue;
         } else if (morph.pass === pixelatePass) {
-            morph.pass.uniforms.uPixelSize.value = 4.0 + (1.0 - currentValue) * 12.0; // Higher pixel size when fading out
+            morph.pass.uniforms.uPixelSize.value = 4.0 + (1.0 - currentValue) * 16.0; // Higher pixel size range
         } else if (morph.pass === asciiPass) {
             // For ASCII, we morph the font size or opacity
-            morph.pass.uniforms.uFontSize.value = Math.max(1, 8 * currentValue);
+            morph.pass.uniforms.uFontSize.value = Math.max(1, 12 * currentValue);
+        }
+
+        // Handle blur effects during morphing
+        if (morph.useBlur && blurPass) {
+            const blurIntensity = Math.sin(progress * Math.PI) * 2.0; // Sine wave blur
+            blurPass.uniforms.blurAmount.value = blurIntensity;
         }
 
         if (progress >= 1.0) {
@@ -322,6 +471,11 @@ function animateMorphing() {
             // If target value is 0, disable the effect
             if (morph.targetValue === 0.0) {
                 morph.pass.enabled = false;
+            }
+
+            // Disable blur if it was used
+            if (morph.useBlur && blurPass) {
+                blurPass.enabled = false;
             }
         } else {
             hasActiveMorphs = true;
@@ -1559,19 +1713,19 @@ function handleKeyDown(e) {
             try { generateLinesSetA(0xffffff, 0xff00ff); } catch(err) { console.error(err); }
             break;
         case 'x':
-            // Toggle pixelation effect with morphing
+            // Really blurry morphing for pixelation
             if (pixelatePass) {
                 const targetValue = pixelatePass.enabled ? 0.0 : 1.0;
-                startMorphingEffect('pixelation', pixelatePass, targetValue, 1000);
-                console.log('Morphing pixelation:', targetValue > 0 ? 'ON' : 'OFF');
+                startBlurryMorph('pixelation', pixelatePass, targetValue);
+                console.log('Blurry morphing pixelation:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case 'c':
-            // Toggle color inversion effect with morphing
+            // Really blurry morphing for color inversion
             if (invertPass) {
                 const targetValue = invertPass.enabled ? 0.0 : 1.0;
-                startMorphingEffect('colorInversion', invertPass, targetValue, 1000);
-                console.log('Morphing color inversion:', targetValue > 0 ? 'ON' : 'OFF');
+                startBlurryMorph('colorInversion', invertPass, targetValue);
+                console.log('Blurry morphing color inversion:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case '1': {
@@ -1648,28 +1802,28 @@ function handleKeyDown(e) {
             break;
         }
         case 'v':
-            // Toggle vignette effect with morphing
+            // Really blurry morphing for vignette
             if (vignettePass) {
                 const targetValue = vignettePass.enabled ? 0.0 : 1.0;
-                startMorphingEffect('vignette', vignettePass, targetValue, 1000);
-                console.log('Morphing vignette:', targetValue > 0 ? 'ON' : 'OFF');
+                startBlurryMorph('vignette', vignettePass, targetValue);
+                console.log('Blurry morphing vignette:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case 'b':
-            // Chromatic aberration effect with morphing
+            // Really blurry morphing for chromatic aberration
             if (rgbShiftPass) {
                 const targetValue = rgbShiftPass.enabled ? 0.0 : 1.0;
-                startMorphingEffect('chromaticAberration', rgbShiftPass, targetValue, 1000);
-                console.log('Morphing chromatic aberration:', targetValue > 0 ? 'ON' : 'OFF');
+                startBlurryMorph('chromaticAberration', rgbShiftPass, targetValue);
+                console.log('Blurry morphing chromatic aberration:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case 'n':
-            // Toggle ASCII effect with morphing
+            // Really blurry morphing for ASCII effect
             if (asciiPass) {
                 const targetValue = asciiPass.enabled ? 0.0 : 1.0;
-                startMorphingEffect('ascii', asciiPass, targetValue, 1000);
+                startBlurryMorph('ascii', asciiPass, targetValue);
                 asciiEnabled = targetValue > 0;
-                console.log('Morphing ASCII effect:', targetValue > 0 ? 'ON' : 'OFF');
+                console.log('Blurry morphing ASCII effect:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
         case 'm':
@@ -2021,8 +2175,8 @@ function sendCanvasClick() {
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
         const evtInit = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window };
-        el.dispatchEvent(new PointerEvent('pointerdown', evtInit));
-        el.dispatchEvent(new MouseEvent('mousedown', evtInit));
+        // el.dispatchEvent(new PointerEvent('pointerdown', evtInit));
+        // el.dispatchEvent(new MouseEvent('mousedown', evtInit));
         if (el.focus) try { el.focus(); } catch(e){}
         el.dispatchEvent(new PointerEvent('pointerup', evtInit));
         el.dispatchEvent(new MouseEvent('mouseup', evtInit));
@@ -2747,6 +2901,11 @@ renderer.setClearColor(0xffffff, 1);
 	asciiPass.enabled = false; // Start disabled
 	composer.addPass(asciiPass);
 
+	// Create blur pass for really blurry morphing
+	blurPass = new ShaderPass(blurShader);
+	blurPass.enabled = false; // Start disabled
+	composer.addPass(blurPass);
+
 	// Create vignette pass for V key
 	const vignetteShader = {
 		uniforms: {
@@ -3024,9 +3183,9 @@ function handleGamepadInput() {
         // console.log('Gamepads detected:', gamepads ? gamepads.length : 0, gamepad ? gamepad.id : 'none');
         const activeGamepad = Array.from(gamepads).find(gp => gp);
         if (activeGamepad) {
-            // console.log("Gamepad detected 2:", activeGamepad.id);
+            console.log("Gamepad detected 2:", activeGamepad.id);
         } else {
-            // console.log("No gamepad detected 2");
+            console.log("No gamepad detected 2");
         }
 
         if (gamepad) {
@@ -3078,25 +3237,23 @@ function handleGamepadInput() {
                 rotationCenter.copy(store.state.selectedObject.position);
             }
 
-            // Left stick: translate camera (strafe and forward/back) + map to color palette uniquely by (lx, ly)
+            // Left stick: orbit camera around controls.target (always) + map to color palette uniquely by (lx, ly)
             if (Math.abs(window.gamepadState.leftStickX) > 0.01 || Math.abs(window.gamepadState.leftStickY) > 0.01) {
-
-
-                const forward = new Vector3();
-                camera.getWorldDirection(forward);
-                forward.y = 0; // horizontal plane for consistent motion
-                forward.normalize();
-                const right = new Vector3(-forward.z, 0, forward.x);
-                const moveMod = getAudioModulation();
-                const lsSpeed = moveSpeed / 80;
                 const lx = window.gamepadState.leftStickX;
                 const ly = window.gamepadState.leftStickY;
 
+                console.log('🎮  2 GAMEPAD ACTIVE - Left:', params.rsy, window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2));
 
-                console.log('🎮 GAMEPAD ACTIVE - Left:', params.rsy, window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2));
-
-                camera.position.addScaledVector(right, -lx * lsSpeed * moveMod);
-                camera.position.addScaledVector(forward, ly * lsSpeed * moveMod);
+                // Always orbit using currently active controls (Orbit or Map) around current target
+                const activeControls = (controls && controls.enabled) ? controls : (mapControls && mapControls.enabled ? mapControls : (controls || mapControls));
+                const orbitSensitivity = 0.04; // adjust as needed
+                const yaw = -lx * orbitSensitivity;
+                const pitch =  ly * orbitSensitivity;
+                if (activeControls && typeof activeControls.rotateLeft === 'function') {
+                    activeControls.rotateLeft(yaw);
+                    activeControls.rotateUp(pitch);
+                    activeControls.update();
+                }
 
                 // Unique color mapping from (lx, ly): hue from angle, saturation from radius, with audio wobble
                 const r = Math.min(1, Math.sqrt(lx * lx + ly * ly));
@@ -3235,7 +3392,7 @@ function handleGamepadInput() {
         virtualCursor.y += window.gamepadState.leftStickY * virtualCursorSpeed;
 
 
-        // console.log('🎮 GAMEPAD ACTIVE - Left:', window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2), 'Right:', window.gamepadState.rightStickX.toFixed(2), window.gamepadState.rightStickY.toFixed(2));
+        console.log('🎮 GAMEPAD ACTIVE - Left:', window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2), 'Right:', window.gamepadState.rightStickX.toFixed(2), window.gamepadState.rightStickY.toFixed(2));
 
     } else {
         // console.log('No gamepad detected');
@@ -3650,12 +3807,14 @@ function handleGamepadTriggers(gamepad) {
     if (!window.gamepadState.rightBumper) {
         window.gamepadButtonRightBumperPressed = false;
     }
-
+    console.log ('window.gamepadState.leftTrigger', window.gamepadState.leftTrigger
+    )
     // Left Trigger (L2): Film grain + RGB shift + bokeh focal (40-50)
     {
         const l2 = Math.max(0, Math.min(1, window.gamepadState.leftTrigger || 0));
 
-
+        console.log ('L2', l2
+        )
         if (l2 > 0.05) {
             // Film grain
             if (filmPass && filmPass.uniforms) {
@@ -3699,7 +3858,7 @@ function handleGamepadTriggers(gamepad) {
                 window.fractalL2Active = true;
                 fractalizeAberration(6, 55);
             }
-
+console.log ('L2', l2)
             // Hard press triggers fast 180° rotation (counter-clockwise), with blur pulse
             if (l2 > 0.95 && !window.spinL2Triggered) {
                 window.spinL2Triggered = true;
@@ -3755,7 +3914,7 @@ function randomizeBokehParameters() {
     effectController.threshold = Math.random() * 0.5 + 0.25; // 0.25-0.75
     effectController.gain = Math.random() * 95 + 5; // 5-100
     effectController.bias = Math.random() * 2.5 + 0.25; // 0.25-2.75
-    effectController.fringe = Math.random() * 29.75 + 0.25; // 0.25-6.75
+    effectController.fringe = Math.random() * 49.75 + 0.25; // 0.25-6.75
     effectController.focalLength = Math.random() * 60 + 10; // 10-70
 
     // Randomly enable/disable some effects
@@ -4075,7 +4234,7 @@ function smoothRandomizeBokeh(durationMs = 1000) {
         threshold: Math.random() * 0.5 + 0.25,
         gain: Math.random() * 95 + 5,
         bias: Math.random() * 2.5 + 0.25,
-        fringe: Math.random() * 29.75 + 0.25,
+        fringe: Math.random() * 49.75 + 0.25,
         focalLength: Math.random() * 60 + 10,
         showFocus: Math.random() > 0.7 ? 1 : 0,
         manualdof: Math.random() > 0.8 ? 1 : 0,
@@ -4369,12 +4528,12 @@ function updateRGBShiftWithGamepad() {
 
     // D-pad controls for RGB shift
     if (window.gamepadState.dpadLeft) {
-        params.rsx = Math.max(0, params.rsx - 0.01);
+        params.rsx = Math.max(0, params.rsx - 0.001);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
     if (window.gamepadState.dpadRight) {
-        params.rsx = Math.min(1, params.rsx + 0.01);
+        params.rsx = Math.min(0.01, params.rsx + 0.001);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
@@ -4992,6 +5151,11 @@ function onCanvasResize() {
 		if (bokehPass) {
 			bokehPass.uniforms['textureWidth'].value = width;
 			bokehPass.uniforms['textureHeight'].value = height;
+		}
+
+		// Update blur pass uniforms
+		if (blurPass) {
+			blurPass.uniforms.resolution.value.set(width, height);
 		}
 
 		windowHalfX = width / 2;
