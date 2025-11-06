@@ -514,7 +514,7 @@ export default {
           const pattern = /let\s+audioLevel/;
           const pattern2 = /\/\/let\s+audioLevel/;
           if (!pattern.test(processedCode) && !pattern2.test(processedCode)) {
-            processedCode = 'let audioLevel = input(0.5);\n' + processedCode;
+            processedCode = 'let audioLevel = input();\n' + processedCode;
           }
 
 
@@ -763,8 +763,12 @@ export default {
         padding-left: 10px;
         transition: height 300ms ease-in-out;
 
+      .error-messages {
+        margin-top: 20px;
+
+      }
         &.max {
-            height: 45vh;
+            height: 40vh;
         }
         // padding-bottom: 10px;
         // padding-top: 10px;

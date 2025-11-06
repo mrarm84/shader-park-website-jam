@@ -78,6 +78,7 @@ const appCheck = firebase.appCheck();
 appCheck.activate('6LdOL7keAAAAADahgNg_e2DFCG52EFLuVVN0OTmV',true)
 
 const router = new VueRouter({ routes: routes, mode: 'history', base: process.env.BASE_URL});
+let selected;
 
 let animationPaused = false;
 const virtualCursor = {
@@ -452,7 +453,7 @@ function animateMorphing() {
             // For color inversion, control the intensity uniform
             morph.pass.uniforms.intensity.value = currentValue;
         } else if (morph.pass === pixelatePass) {
-            morph.pass.uniforms.uPixelSize.value = 4.0 + (1.0 - currentValue) * 16.0; // Higher pixel size range
+            morph.pass.uniforms.uPixelSize.value = 0.1 + (0.1 - currentValue) * 0.2; // Higher pixel size range
         } else if (morph.pass === asciiPass) {
             // For ASCII, we morph the font size or opacity
             morph.pass.uniforms.uFontSize.value = Math.max(1, 12 * currentValue);
@@ -550,6 +551,20 @@ window.effectController = effectController;
 
 // Make params globally accessible for dynamic tweaking
 window.rgbShiftParams = params;
+
+// Global sculpture MELTING function
+window.meltSelectedSculpture = function(duration = 4000) {
+    if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture) {
+        const sculpture = store.state.selectedSculpture.sculpture;
+        if (sculpture.startMorph) {
+            sculpture.startMorph(duration);
+            console.log(`Starting sculpture MELTING (${duration}ms)`);
+            return true;
+        }
+    }
+    console.log('No sculpture available for melting');
+    return false;
+};
 
 function enableAudio() {
     audioEnabled = true;
@@ -778,7 +793,7 @@ function setupBokehGUI() {
     };
 
     gui = new GUI({
-        // autoPlace: false
+        autoPlace: false
     });
 
     // Position bokeh GUI to the right of halftone GUI
@@ -815,6 +830,29 @@ function setupBokehGUI() {
 
     gui.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
     gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
+
+    let isDragging = false;
+    let offset = { x: 0, y: 0 };
+
+    const guiDom = gui.domElement;
+
+    guiDom.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        offset.x = e.clientX - guiDom.offsetLeft;
+        offset.y = e.clientY - guiDom.offsetTop;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            guiDom.style.left = `${e.clientX - offset.x}px`;
+            guiDom.style.top = `${e.clientY - offset.y}px`;
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
 
     matChanger();
 }
@@ -961,6 +999,50 @@ window.halftoneParams = {
     greyscale: false,
     disable: false
 };
+
+// Mesh deformation state
+let deformationMode = false;
+let isDragging = false;
+let lastMousePos = new Vector2();
+let deformationStrength = 0.5;
+let deformationRadius = 1.0;
+let deformationTarget = null; // The mesh being deformed
+
+// Debug visualization
+let debugSphere = null;
+let debugArrow = null;
+
+// Create debug visualization objects
+function createDebugObjects() {
+    // Debug sphere for intersection point
+    const sphereGeometry = new IcosahedronGeometry(0.05, 2);
+    const sphereMaterial = new MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
+    debugSphere = new Mesh(sphereGeometry, sphereMaterial);
+    debugSphere.visible = false;
+
+    // Debug line for deformation direction
+    const lineGeometry = new BufferGeometry().setFromPoints([
+        new Vector3(0, 0, 0),
+        new Vector3(1, 0, 0)
+    ]);
+    const lineMaterial = new LineDashedMaterial({
+        color: 0x00ff00,
+        linewidth: 3,
+        scale: 1,
+        dashSize: 0.1,
+        gapSize: 0.05
+    });
+    debugArrow = new Line(lineGeometry, lineMaterial);
+    debugArrow.visible = false;
+
+    if (scene) {
+        scene.add(debugSphere);
+        scene.add(debugArrow);
+    }
+
+    console.log('🔧 Debug objects created');
+}
+
 let vignettePass = null; // vignette pass
 let bloomPass = null; // bloom pass (third row)
 let saoPass = null; // SAO pass (third row)
@@ -1246,6 +1328,63 @@ function createAudioUI() {
     palBtn.addEventListener('click', () => showPalettePanel());
     document.body.appendChild(palBtn);
     window.topControls.push(palBtn);
+
+    // Focus button (switch between meshes with blur)
+    const focusBtn = document.createElement('button');
+    focusBtn.textContent = '👁️';
+    focusBtn.title = 'Focus: cycle through meshes with blur';
+    focusBtn.style.position = 'fixed';
+    focusBtn.style.top = '8px';
+    focusBtn.style.left = '364px';
+    focusBtn.style.height = '24px';
+    focusBtn.style.width = '28px';
+    focusBtn.style.padding = '0';
+    focusBtn.style.border = '1px solid #ddd';
+    focusBtn.style.borderRadius = '6px';
+    focusBtn.style.background = '#fff';
+    focusBtn.style.color = '#333';
+    focusBtn.style.cursor = 'pointer';
+    focusBtn.style.zIndex = '10010';
+    focusBtn.style.fontSize = '14px';
+    focusBtn.addEventListener('click', () => cycleMeshFocus());
+    document.body.appendChild(focusBtn);
+    window.topControls.push(focusBtn);
+
+    // Deformation button (toggle mesh deformation mode)
+    const deformBtn = document.createElement('button');
+    deformBtn.textContent = '🫰';
+    deformBtn.title = 'Deformation: click and drag to sculpt meshes';
+    deformBtn.style.position = 'fixed';
+    deformBtn.style.top = '8px';
+    deformBtn.style.left = '398px';
+    deformBtn.style.height = '24px';
+    deformBtn.style.width = '28px';
+    deformBtn.style.padding = '0';
+    deformBtn.style.border = '1px solid #ddd';
+    deformBtn.style.borderRadius = '6px';
+    deformBtn.style.background = deformationMode ? '#43a047' : '#fff';
+    deformBtn.style.color = deformationMode ? '#fff' : '#333';
+    deformBtn.style.cursor = 'pointer';
+    deformBtn.style.zIndex = '10010';
+    deformBtn.style.fontSize = '14px';
+    deformBtn.addEventListener('click', () => {
+        deformationMode = !deformationMode;
+        deformBtn.style.background = deformationMode ? '#43a047' : '#fff';
+        deformBtn.style.color = deformationMode ? '#fff' : '#333';
+        canvas.style.cursor = deformationMode ? 'grab' : 'auto';
+
+        // Hide debug objects when deformation mode is disabled
+        if (!deformationMode && debugSphere) {
+            debugSphere.visible = false;
+        }
+        if (!deformationMode && debugArrow) {
+            debugArrow.visible = false;
+        }
+
+        console.log('🫰 Deformation mode:', deformationMode ? 'ON' : 'OFF');
+    });
+    document.body.appendChild(deformBtn);
+    window.topControls.push(deformBtn);
 }
 function updateAudioIndicator(level) {
     const indicator = window.audioVolumeIndicator;
@@ -1254,6 +1393,44 @@ function updateAudioIndicator(level) {
     const height = Math.min(24, Math.max(2, level * 24)); // scale to 2–24px
     indicator.style.height = `${height}px`;
     indicator.style.background = `rgb(${Math.floor(level * 255)}, 100, 150)`; // dynamic color
+}
+
+// Cycle through mesh focus with blur effect
+function cycleMeshFocus() {
+    if (!window.scene) return;
+
+    // Get all sculpture meshes from the scene
+    const sculptureMeshes = window.scene.children.filter(child =>
+        child.type === 'Mesh' && child.name && child.name.length > 0
+    );
+
+    if (sculptureMeshes.length === 0) return;
+
+    // Initialize focus index if not set
+    if (typeof window.currentFocusIndex === 'undefined') {
+        window.currentFocusIndex = -1;
+    }
+
+    // Cycle to next mesh
+    window.currentFocusIndex = (window.currentFocusIndex + 1) % sculptureMeshes.length;
+    const focusedMesh = sculptureMeshes[window.currentFocusIndex];
+
+    // Apply blur effect when switching focus
+    triggerDelayedBlur(0, 500);
+
+    // Update camera to focus on the selected mesh
+    if (camera && focusedMesh) {
+        // Calculate a good camera position to focus on this mesh
+        const meshPosition = focusedMesh.position.clone();
+        const distance = 5;
+        const height = 2;
+
+        // Position camera to look at the mesh
+        camera.position.set(meshPosition.x, meshPosition.y + height, meshPosition.z + distance);
+        camera.lookAt(meshPosition);
+
+        console.log('Focused on mesh:', focusedMesh.name, 'at position:', meshPosition);
+    }
 }
 
 // Toggle header visibility (hide Shader Park header/nav)
@@ -1305,6 +1482,43 @@ function randomBrightColor() {
     const b = 64 + Math.floor(Math.random() * 192);
     return (r << 16) | (g << 8) | b;
 }
+
+function spinCameraAroundSelectedObject(axis = new THREE.Vector3(0, 1, 0), duration = 1000, angle = Math.PI) {
+    const curr = store.state.currSculpture;
+
+    if (curr && curr.id) {
+        const match = store.state.objectsToUpdate.find(o => o && o.mesh && o.mesh.name === curr.id);
+        if (match && match.mesh) selected = match.mesh;
+    }
+
+    if (!store.state.selectedObject && store.state.objectsToUpdate.length > 0) {
+        selected = store.state.objectsToUpdate[0].mesh;
+    }
+
+    if (!store.state.selectedObject && window.scene) {
+        const meshes = window.scene.children.filter(obj => obj.type === 'Mesh');
+        if (meshes.length > 0) selected = meshes[0];
+    }
+
+    const object = seleted;
+    if (!object || !camera) return;
+
+    const target = object.position.clone();
+    const startVec = camera.position.clone().sub(target);
+    const state = { t: 0 };
+
+    new TWEEN.Tween(state)
+        .to({ t: 1 }, duration)
+        .easing(TWEEN.Easing.Quadratic.InOut)
+        .onUpdate(() => {
+            const q = new THREE.Quaternion().setFromAxisAngle(axis.normalize(), angle * state.t);
+            const rotated = startVec.clone().applyQuaternion(q);
+            camera.position.copy(target.clone().add(rotated));
+            camera.lookAt(target);
+        })
+        .start();
+}
+
 
 // Smooth 180° camera spin around controls.target
 function spinCamera180(clockwise = true, duration = 450, spin = 1) {
@@ -1550,6 +1764,7 @@ function handleKeyDown(e) {
             }
             break;
         case 'o': // Hue/Sat wobble hold
+            spinCamera180(false, 1250, 2.5);
             window.keyboard.holdO = true;
             if (hueSatPass && hueSatPass.uniforms) {
                 hueSatPass.enabled = true;
@@ -1573,6 +1788,7 @@ function handleKeyDown(e) {
             niceBlurPulse(300, 150);
             spinCamera180(true, 250, 0.5);
             break;
+
         case '\\': // combo glitch hold
             window.keyboard.holdBackslash = true;
             if (rgbShiftPass && rgbShiftPass.uniforms) rgbShiftPass.enabled = true;
@@ -1707,6 +1923,11 @@ function handleKeyDown(e) {
             cycleSPExamples();
             break;
         }
+        case '6': {
+            // Cycle through sp-examples files
+            spinCameraAroundSelectedObject();
+            break;
+        }
         // Third row: content
         case 'z':
             // Generate lines set A (Hilbert dashed)
@@ -1715,7 +1936,7 @@ function handleKeyDown(e) {
         case 'x':
             // Really blurry morphing for pixelation
             if (pixelatePass) {
-                const targetValue = pixelatePass.enabled ? 0.0 : 1.0;
+                const targetValue = pixelatePass.enabled ? 0.0 : 0.1;
                 startBlurryMorph('pixelation', pixelatePass, targetValue);
                 console.log('Blurry morphing pixelation:', targetValue > 0 ? 'ON' : 'OFF');
             }
@@ -1817,7 +2038,7 @@ function handleKeyDown(e) {
                 console.log('Blurry morphing chromatic aberration:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
-        case 'n':
+        case '7':
             // Really blurry morphing for ASCII effect
             if (asciiPass) {
                 const targetValue = asciiPass.enabled ? 0.0 : 1.0;
@@ -1829,8 +2050,35 @@ function handleKeyDown(e) {
         case 'm':
             filmPulse(0.5, 0.12, 2200, 220);
             break;
+        case 'N':
+            // Really blurry morphing for ASCII effect
+            if (asciiPass) {
+                const targetValue = asciiPass.enabled ? 0.0 : 1.0;
+                startBlurryMorph('ascii', asciiPass, targetValue);
+                asciiEnabled = targetValue > 0;
+                console.log('Blurry morphing ASCII effect:', targetValue > 0 ? 'ON' : 'OFF');
+            }
+            break;
+        case 'M':
+            filmPulse(0.5, 0.12, 2200, 220);
+            break;
         case ',':
+
             halftonePulse(1.0, 0.9, 180, 420, 60);
+            if (sculpture.startMorph && sculpture.meshNew) {
+                // Temporarily set meshOld to null so it melts with meshNew
+                const tempMeshOld = sculpture.meshOld;
+                sculpture.meshOld = null;
+                console.log('Set meshOld to null temporarily, meshNew exists:', !!sculpture.meshNew);
+                sculpture.startMorph(4000); // Longer duration for dramatic melt
+                sculpture.meshOld = tempMeshOld; // Restore
+                console.log('Started MELTING current → new');
+            } else {
+                console.log('No meshNew available for melting');
+                if (!sculpture.meshNew) {
+                    console.log('meshNew is null - was third sculpture loaded?');
+                }
+            }
             break;
         case '.':
             halftonePulse(0.8, 0.3, 240, 240, 0);
@@ -1839,6 +2087,48 @@ function handleKeyDown(e) {
             // cinematic combo: Bloom + SAO (one-way enable)
             if (bloomPass) bloomPass.enabled = true;
             if (saoPass) saoPass.enabled = true;
+            break;
+        case 'm':
+            // MELT with meshOld (previous version) - chaotic merging
+            console.log('M key pressed - MELTING with meshOld');
+            if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture) {
+                const sculpture = store.state.selectedSculpture.sculpture;
+                if (sculpture.startMorph && sculpture.meshOld) {
+                    // Temporarily set meshNew to null so it melts with meshOld
+                    const tempMeshNew = sculpture.meshNew;
+                    sculpture.meshNew = null;
+                    sculpture.startMorph(4000); // Longer duration for dramatic melt
+                    sculpture.meshNew = tempMeshNew; // Restore
+                    console.log('Started MELTING current → old');
+                } else {
+                    console.log('No meshOld available for melting');
+                }
+            }
+            break;
+        case 'n':
+            // MELT with meshNew (third sculpture) - chaotic merging
+            console.log('N key pressed - MELTING with meshNew');
+            if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture) {
+                const sculpture = store.state.selectedSculpture.sculpture;
+                console.log('sculpture has startMorph:', !!sculpture.startMorph);
+                console.log('sculpture has meshNew:', !!sculpture.meshNew);
+                console.log('meshNew position:', sculpture.meshNew?.position);
+                console.log('mesh position:', sculpture.mesh?.position);
+                if (sculpture.startMorph && sculpture.meshNew) {
+                    // Temporarily set meshOld to null so it melts with meshNew
+                    const tempMeshOld = sculpture.meshOld;
+                    sculpture.meshOld = null;
+                    console.log('Set meshOld to null temporarily, meshNew exists:', !!sculpture.meshNew);
+                    sculpture.startMorph(4000); // Longer duration for dramatic melt
+                    sculpture.meshOld = tempMeshOld; // Restore
+                    console.log('Started MELTING current → new');
+                } else {
+                    console.log('No meshNew available for melting');
+                    if (!sculpture.meshNew) {
+                        console.log('meshNew is null - was third sculpture loaded?');
+                    }
+                }
+            }
             break;
         default: break;
     }
@@ -2101,19 +2391,19 @@ function dotPulse(angleTarget = Math.PI / 3, scaleTarget = 0.5, upMs = 250, down
 }
 
 function filmPulse(nIntensity = 0.45, sIntensity = 0.1, sCount = 2400, holdMs = 200) {
-    if (!filmPass || !filmPass.uniforms) return;
-    filmPass.enabled = true;
-    const n0 = filmPass.uniforms['nIntensity'].value;
-    const s0 = filmPass.uniforms['sIntensity'].value;
-    const c0 = filmPass.uniforms['sCount'].value;
-    filmPass.uniforms['nIntensity'].value = nIntensity;
-    filmPass.uniforms['sIntensity'].value = sIntensity;
-    filmPass.uniforms['sCount'].value = sCount;
-    setTimeout(() => {
-        filmPass.uniforms['nIntensity'].value = n0;
-        filmPass.uniforms['sIntensity'].value = s0;
-        filmPass.uniforms['sCount'].value = c0;
-    }, Math.max(0, holdMs));
+    // if (!filmPass || !filmPass.uniforms) return;
+    // filmPass.enabled = true;
+    // const n0 = filmPass.uniforms['nIntensity'].value;
+    // const s0 = filmPass.uniforms['sIntensity'].value;
+    // const c0 = filmPass.uniforms['sCount'].value;
+    // filmPass.uniforms['nIntensity'].value = nIntensity;
+    // filmPass.uniforms['sIntensity'].value = sIntensity;
+    // filmPass.uniforms['sCount'].value = sCount;
+    // setTimeout(() => {
+    //     filmPass.uniforms['nIntensity'].value = n0;
+    //     filmPass.uniforms['sIntensity'].value = s0;
+    //     filmPass.uniforms['sCount'].value = c0;
+    // }, Math.max(0, holdMs));
 }
 
 function showHelpModal() {
@@ -3787,6 +4077,7 @@ function handleGamepadTriggers(gamepad) {
 
     // Right Bumper (Toggle Bokeh effect and smooth-randomize parameters)
     if (window.gamepadState.rightBumper && !window.gamepadButtonRightBumperPressed) {
+        spinCameraAroundSelectedObject();
         window.gamepadButtonRightBumperPressed = true;
         effectController.enabled = !effectController.enabled;
         if (effectController.enabled) {
@@ -4674,7 +4965,7 @@ function render(time) {
 		}
 
         let uniforms = [];
-        uniforms.push({ name: 'audioLevel', value: (audioLevel || 0.0), type: 'float' });
+        uniforms.push({ name: 'audioLevel', value: (window.audioLevel || 0.0), type: 'float' });
         uniforms.push({ name: 'time', value: currTime, type: 'float' });
         uniforms.push({ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
 		if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
@@ -4722,15 +5013,9 @@ function render(time) {
 	let enableKeys = store.state.selectedSculpture ? false : true;
 	mapControls.enableKeys = true;
 	controls.enableKeys = enableKeys;
-    const speed = 0.05;
     // //console.log(gamepad)
 
-    // controls.target.x += virtualCursor.x ;
-    // controls.target.y += virtualCursor.y;
-    // camera.position.x += virtualCursor.x;
-    // camera.position.y += virtualCursor.y;
-    // camera.position.x += virtualCursor.x;
-    // camera.position.y += 23;
+
 	if(controls.enabled) {
 
 		controls.update();
