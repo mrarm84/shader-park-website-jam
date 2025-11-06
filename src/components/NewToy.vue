@@ -8,7 +8,7 @@
 </template>
 
 <script>
-import Sculpture from './Sculpture.vue';
+import Sculpture from './SculptureST.vue';
 import {handelUnsavedChanges} from '../helpers/handelUnsavedChanges.js';
 export default {
   data: function() {

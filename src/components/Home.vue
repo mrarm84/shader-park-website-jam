@@ -30,15 +30,15 @@
         </h1>
         <p>
             Something about community etc
-        </p>  
-    </section>      
+        </p>
+    </section>
     <section class="container">
         <iframe width="100%" height="450px" src="https://shaderpark.com/sculpture/-LhBKYiVaq9-d-LmnImX?example=true&embed=true" frameborder="0"></iframe>
     </section> -->
 
 
 
-    <section class="container featured"> 
+    <section class="container featured">
         <router-link to="/featured" class="link"><h1 v-show="!loading">Featured Sculptures ›</h1></router-link>
         <sculpture-feed :sculptures="featuredSculptures" v-if="featuredSculptures"></sculpture-feed>
 
@@ -62,9 +62,9 @@
             <a target="_blank" href="https://discord.gg/Z8CDWvVMeR" class="external-platform-link margin-left"><img src="img/icons/discord.png" loading="lazy" width="80" alt="Disscord Logo"></a>
             <a target="_blank" href="https://github.com/shader-park/" class="external-platform-link"><img src="img/icons/github.png" loading="lazy" width="80" alt="Github Logo"></a>
 
-        
-    </section>   
-    
+
+    </section>
+
     <section class="container getting-started">
         <h1 class="center hero-text other-platforms">
             Getting Started<br/><br/>
@@ -72,7 +72,7 @@
         <div class='video-wrapper'>
                 <iframe width="100%"  height="100%" class="youtube-embed" src="https://www.youtube-nocookie.com/embed/videoseries?list=PLgfxkm9xFocbc6wiO3A8vXalP4K57yUKo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
         </div>
-    </section>    
+    </section>
 
     <section class="container other-platforms-section">
         <h1 class="center hero-text other-platforms">
@@ -115,7 +115,7 @@
     </section>
 
 </div>
-  
+
 </template>
 
 <script>
@@ -157,7 +157,7 @@ export default {
         SpThreeVue
 	},
 	mounted() {
-        this.$store.commit('sculpturesLoaded', true);    
+        this.$store.commit('sculpturesLoaded', true);
 		this.$store.commit('setInitialCameraPose', [6, 2.5, 4]);
 		this.$store.dispatch('fetchFeaturedSculptures').then(sculptures => {
 			if(sculptures) {
@@ -165,7 +165,7 @@ export default {
                 sculptures = sculptures.slice(0, 8);
 				this.featuredSculptures = sculptures; //array.push isn't tracked by state, resetting is
 			}
-			this.$store.commit('sculpturesLoaded', true);    
+			this.$store.commit('sculpturesLoaded', true);
 			this.$store.commit('joinRoom', this.roomName);
 			this.loading = false;
 		})
@@ -221,7 +221,7 @@ export default {
             //         'hover' : this.state.currHover,
             //         'click' : this.state.currClick,
             //     };
-            // });        
+            // });
         });
 	},
 	destroyed() {
@@ -278,7 +278,7 @@ export default {
 .active-button {
     padding: 11px 18px;
     border: 3px solid #dedede;
-    border-radius: 10px;
+    border-radius: 2px;
     // background-color: #50e3c2;
     font-family: 'Inter ui', sans-serif;
     font-size: 18px;
@@ -358,7 +358,7 @@ p {
     });
 
     .mobile({
-        
+
         margin-left: 0px;
         margin-right: 0px;
         padding-left: 20px;
@@ -370,7 +370,7 @@ p {
         }
     });
 
-    & p { 
+    & p {
         font-weight: 100!important;
     }
 
@@ -493,7 +493,7 @@ section {
 
 .video-wrapper {
     position: relative;
-    padding-bottom: 56.25%; /* 16:9, for an aspect ratio of 1:1 change to this value to 100% */ 
+    padding-bottom: 56.25%; /* 16:9, for an aspect ratio of 1:1 change to this value to 100% */
 }
 .youtube-embed{
     // transform: translateX(-50%);
@@ -504,8 +504,8 @@ section {
     width: 100%;
     height: 100%;
     max-height: 80vh;
-    
+
 
 }
- 
+
 </style>

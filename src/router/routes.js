@@ -1,4 +1,5 @@
 import New from '../components/New.vue';
+import Game from '../components/Game.vue';
 
 
 // This is where you add all your site routes
@@ -41,15 +42,15 @@ export const routes = [
       title: 'Gallery',
     }
   },
-  {
-    path: '/new/:type',
-    name: 'new',
-    component: New,
-    meta: {
-      title: 'New Sculpture',
-      selectedSculpture: true
-    }
-  },
+  // {
+  //   path: '/new/:type',
+  //   name: 'new',
+  //   component: New,
+  //   meta: {
+  //     title: 'New Sculpture',
+  //     selectedSculpture: true
+  //   }
+  // },
   {
     path: '/new',
     name: 'new',
@@ -108,6 +109,37 @@ export const routes = [
       selectedSculpture: true
     }
   },
+  {
+    path: '/game/:id',
+    name: 'game',
+    component: Game,
+    props: (route) => ({
+      example: route.query.example,
+      embed: route.query.embed,
+      hideEditor: route.query.hideeditor,
+      hidePedestal: route.query.hidepedestal,
+      clickEnabled: route.query.clickenabled
+    }),
+    meta: {
+      title: 'game',
+      selectedSculpture: true
+    }
+  },
+    //
+    // {
+    //     path: '/game',
+    //     name: 'game',
+    //     component: Game,
+    //     props: (route) => ({
+    //         hideEditor: false,
+    //         hidePedestal: true,
+    //         clickEnabled: false
+    //     }),
+    //     meta: {
+    //         title: 'New Game',
+    //         selectedSculpture: true
+    //     }
+    // },
   {
     path: '/embed/:id',
     name: 'embed',

@@ -5,7 +5,7 @@ import 'firebase/compat/auth';
 import 'firebase/compat/database';
 import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
-import * as THREE from 'three/webgpu';
+import * as THREE from 'three';
 
 import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
 import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'three/tsl';
@@ -14,12 +14,14 @@ import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'thr
 // import * as THREE from 'three';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+import Stats from 'three/addons/libs/stats.module.js';
+// import dat from '//cdn.jsdelivr.net/npm/dat.gui/build/dat.gui.module.js';
 
 
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
 
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MapControls } from 'three/addons/controls/MapControls.js';
@@ -28,6 +30,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { BokehShader, BokehDepthShader } from 'three/addons/shaders/BokehShader2.js';
 import { HalftoneShader } from 'three/addons/shaders/HalftoneShader.js';
 import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
@@ -58,7 +61,15 @@ import {dbConfig} from './dbConfig.js';
 import {routes} from './router/routes';
 import {store} from './store/store';
 import {parseNumber} from "vue-js-modal/src/parser";
+import {GammaCorrectionShader} from "three/addons/shaders/GammaCorrectionShader.js";
 window.$store = store;
+
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+import { Pass } from 'three/addons/postprocessing/Pass.js';
+
 
 
 window.anime = anime;
@@ -85,6 +96,49 @@ const virtualCursor = {
     y: window.innerHeight / 2
 };
 let clicking = false;
+
+// globals
+var stats;
+var paramsT = {
+    diffuseFactor: 0,
+    indexOfRefraction: 1.1,
+    absorptionFactor: 1.0,
+    lightBandOffset: 0.1,
+
+    color: '#e69955',
+    roughness: 0.1,
+    layers: 4,
+    singleLayerOnly: false,
+    background: 'white',
+    model: 'Buddha',
+};
+
+
+
+var mixer, clock, animTime = 0;
+
+var paramsMB = {
+    enabled: true,
+    cameraBlur: false,
+    animate: true,
+    samples: 7,
+    expandGeometry: 0,
+    interpolateGeometry: 1,
+    smearIntensity: 1,
+    speed: 20,
+    renderTargetScale: 1,
+    jitter: 1,
+    jitterStrategy: 2,
+};
+// var camera, scene, renderer, controls;
+// var composer;
+var fxaaPass, gammaPass, motionPass, renderPass;
+var torusMesh1, torusMesh2, torusMesh3;
+
+var mixer, clock, animTime = 0;
+
+
+
 // console.defaultLog = //console.log.bind(console);
 // //console.logs = [];
 // //console.log = function () {
@@ -193,12 +247,7 @@ let vueApp;
 firebase.auth().onAuthStateChanged(function(user) {
 	if(firstInit) {
 		vueApp = new Vue({el: '#app', store: store, router: router, render: h => h(App)});
-
-        if (!router.currentRoute.path.startsWith('/game/')) {
-            init();
-        } else {
-            initGame();
-        }
+		init();
 
 		//Detect when sculpture is saved
 		vueApp.$store.subscribeAction(async (action, state) => {
@@ -253,7 +302,7 @@ const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight,
 
 window.camera = camera;
 
-let renderer, controls, mapControls, canvas, canvasContainer, composer, renderPass, rgbShiftPass, filmPass, halftonePass, dotPass, afterimagePass;
+let renderer, controls, mapControls, canvas, canvasContainer, composer,  rgbShiftPass, filmPass, halftonePass, dotPass, afterimagePass;
 let redLight, blueLight, greenLight, purpleLight, orangeLight;
 let asciiPass, asciiEnabled = false;
 let invertPass, pixelatePass;
@@ -427,6 +476,7 @@ function animateBlur(from, to, duration, callback) {
             callback();
         }
     }
+
     animate();
 }
 
@@ -457,7 +507,7 @@ function animateMorphing() {
             // For color inversion, control the intensity uniform
             morph.pass.uniforms.intensity.value = currentValue;
         } else if (morph.pass === pixelatePass) {
-            morph.pass.uniforms.uPixelSize.value = 0.1 + (0.2 - currentValue) * 0.1; // Higher pixel size range
+            morph.pass.uniforms.uPixelSize.value = 4.0 + (1.0 - currentValue) * 16.0; // Higher pixel size range
         } else if (morph.pass === asciiPass) {
             // For ASCII, we morph the font size or opacity
             morph.pass.uniforms.uFontSize.value = Math.max(1, 12 * currentValue);
@@ -526,25 +576,25 @@ const shaderSettings = {
 // Bokeh effect controller (same as the HTML example)
 const effectController = {
     enabled: false,
-    jsDepthCalculation: false, // Disable auto depth calculation - use manual focalDepth instead
+    jsDepthCalculation: true, // Disable auto depth calculation - use manual focalDepth instead
     shaderFocus: false,
 
     fstop: 0.1,
-    maxblur: 1.0,
+    maxblur: 0.0,
 
     showFocus: false,
-    focalDepth: 10.0, // Increased default focal depth for better visibility
+    focalDepth: 0.0, // Increased default focal depth for better visibility
     manualdof: false,
     vignetting: false,
     depthblur: false,
 
-    threshold: 0.5,
-    gain: 2.0,
-    bias: 0.5,
-    fringe: 30,
+    threshold: 0.0,
+    gain: 0.0,
+    bias: 0.0,
+    fringe: 40,
 
     focalLength: 35,
-    noise: true,
+    noise: false,
     pentagon: false,
 
     dithering: 0.0001
@@ -555,20 +605,6 @@ window.effectController = effectController;
 
 // Make params globally accessible for dynamic tweaking
 window.rgbShiftParams = params;
-
-// Global sculpture MELTING function
-window.meltSelectedSculpture = function(duration = 4000) {
-    if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture) {
-        const sculpture = store.state.selectedSculpture.sculpture;
-        if (sculpture.startMorph) {
-            sculpture.startMorph(duration);
-            console.log(`Starting sculpture MELTING (${duration}ms)`);
-            return true;
-        }
-    }
-    console.log('No sculpture available for melting');
-    return false;
-};
 
 function enableAudio() {
     audioEnabled = true;
@@ -690,7 +726,7 @@ function setupHalftoneGUI() {
         title: 'BlendModes',
         // autoPlace: false
     });
-    halftoneGUI.domElement.style.left = '1380px'; // Position to the right of halftone GUI
+    halftoneGUI.domElement.style.left = '1080px'; // Position to the right of halftone GUI
 
     // Position halftone GUI to the left of bokeh GUI
     halftoneGUI.domElement.style.position = 'absolute';
@@ -800,43 +836,42 @@ function setupBokehGUI() {
         // autoPlace: false
     });
 
-    if (!router.currentRoute.path.startsWith('/game/')) {
+    // Position bokeh GUI to the right of halftone GUI
+    gui.domElement.style.position = 'absolute';
+    gui.domElement.style.top = '400px';
+    gui.domElement.style.left = '1380px'; // Position to the right of halftone GUI
 
-        // Position bokeh GUI to the right of halftone GUI
-        gui.domElement.style.position = 'absolute';
-        gui.domElement.style.top = '350px';
-        gui.domElement.style.left = '1380px'; // Position to the right of halftone GUI
+    gui.add(effectController, 'enabled').onChange(matChanger);
+    gui.add(effectController, 'jsDepthCalculation').onChange(matChanger);
+    gui.add(effectController, 'shaderFocus').onChange(matChanger);
+    // gui.add(effectController, 'focalDepth', 0.0, 200.0).listen().onChange(matChanger);
+    gui.add(effectController, 'focalDepth', 0.0, 200.0).onChange(matChanger);
 
-        gui.add(effectController, 'enabled').onChange(matChanger);
-        gui.add(effectController, 'jsDepthCalculation').onChange(matChanger);
-        gui.add(effectController, 'shaderFocus').onChange(matChanger);
-        gui.add(effectController, 'focalDepth', 0.0, 200.0).listen().onChange(matChanger);
+    gui.add(effectController, 'fstop', 0.1, 22, 0.001).onChange(matChanger);
+    gui.add(effectController, 'maxblur', 0.0, 5.0, 0.025).onChange(matChanger);
 
-        gui.add(effectController, 'fstop', 0.1, 22, 0.001).onChange(matChanger);
-        gui.add(effectController, 'maxblur', 0.0, 5.0, 0.025).onChange(matChanger);
+    gui.add(effectController, 'showFocus').onChange(matChanger);
+    gui.add(effectController, 'manualdof').onChange(matChanger);
+    gui.add(effectController, 'vignetting').onChange(matChanger);
 
-        gui.add(effectController, 'showFocus').onChange(matChanger);
-        gui.add(effectController, 'manualdof').onChange(matChanger);
-        gui.add(effectController, 'vignetting').onChange(matChanger);
+    gui.add(effectController, 'depthblur').onChange(matChanger);
 
-        gui.add(effectController, 'depthblur').onChange(matChanger);
+    gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
+    gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
+    gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
+    gui.add(effectController, 'fringe', 0, 70, 0.01).onChange(matChanger);
 
-        gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
-        gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
-        gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
-        gui.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
+    gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
 
-        gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
+    gui.add(effectController, 'noise').onChange(matChanger);
 
-        gui.add(effectController, 'noise').onChange(matChanger);
+    gui.add(effectController, 'dithering', 0, 0.001, 0.0001).onChange(matChanger);
 
-        gui.add(effectController, 'dithering', 0, 0.001, 0.0001).onChange(matChanger);
+    gui.add(effectController, 'pentagon').onChange(matChanger);
 
-        gui.add(effectController, 'pentagon').onChange(matChanger);
+    gui.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
+    gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
 
-        gui.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
-        gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
-    }
     matChanger();
 }
 
@@ -982,50 +1017,6 @@ window.halftoneParams = {
     greyscale: false,
     disable: false
 };
-
-// Mesh deformation state
-let deformationMode = false;
-let isDragging = false;
-let lastMousePos = new Vector2();
-let deformationStrength = 0.5;
-let deformationRadius = 1.0;
-let deformationTarget = null; // The mesh being deformed
-
-// Debug visualization
-let debugSphere = null;
-let debugArrow = null;
-
-// Create debug visualization objects
-function createDebugObjects() {
-    // Debug sphere for intersection point
-    const sphereGeometry = new IcosahedronGeometry(0.05, 2);
-    const sphereMaterial = new MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
-    debugSphere = new Mesh(sphereGeometry, sphereMaterial);
-    debugSphere.visible = false;
-
-    // Debug line for deformation direction
-    const lineGeometry = new BufferGeometry().setFromPoints([
-        new Vector3(0, 0, 0),
-        new Vector3(1, 0, 0)
-    ]);
-    const lineMaterial = new LineDashedMaterial({
-        color: 0x00ff00,
-        linewidth: 3,
-        scale: 1,
-        dashSize: 0.1,
-        gapSize: 0.05
-    });
-    debugArrow = new Line(lineGeometry, lineMaterial);
-    debugArrow.visible = false;
-
-    if (scene) {
-        scene.add(debugSphere);
-        scene.add(debugArrow);
-    }
-
-    console.log('🔧 Debug objects created');
-}
-
 let vignettePass = null; // vignette pass
 let bloomPass = null; // bloom pass (third row)
 let saoPass = null; // SAO pass (third row)
@@ -1311,63 +1302,6 @@ function createAudioUI() {
     palBtn.addEventListener('click', () => showPalettePanel());
     document.body.appendChild(palBtn);
     window.topControls.push(palBtn);
-
-    // Focus button (switch between meshes with blur)
-    const focusBtn = document.createElement('button');
-    focusBtn.textContent = '👁️';
-    focusBtn.title = 'Focus: cycle through meshes with blur';
-    focusBtn.style.position = 'fixed';
-    focusBtn.style.top = '8px';
-    focusBtn.style.left = '364px';
-    focusBtn.style.height = '24px';
-    focusBtn.style.width = '28px';
-    focusBtn.style.padding = '0';
-    focusBtn.style.border = '1px solid #ddd';
-    focusBtn.style.borderRadius = '6px';
-    focusBtn.style.background = '#fff';
-    focusBtn.style.color = '#333';
-    focusBtn.style.cursor = 'pointer';
-    focusBtn.style.zIndex = '10010';
-    focusBtn.style.fontSize = '14px';
-    focusBtn.addEventListener('click', () => cycleMeshFocus());
-    document.body.appendChild(focusBtn);
-    window.topControls.push(focusBtn);
-
-    // Deformation button (toggle mesh deformation mode)
-    const deformBtn = document.createElement('button');
-    deformBtn.textContent = '🫰';
-    deformBtn.title = 'Deformation: click and drag to sculpt meshes';
-    deformBtn.style.position = 'fixed';
-    deformBtn.style.top = '8px';
-    deformBtn.style.left = '398px';
-    deformBtn.style.height = '24px';
-    deformBtn.style.width = '28px';
-    deformBtn.style.padding = '0';
-    deformBtn.style.border = '1px solid #ddd';
-    deformBtn.style.borderRadius = '6px';
-    deformBtn.style.background = deformationMode ? '#43a047' : '#fff';
-    deformBtn.style.color = deformationMode ? '#fff' : '#333';
-    deformBtn.style.cursor = 'pointer';
-    deformBtn.style.zIndex = '10010';
-    deformBtn.style.fontSize = '14px';
-    deformBtn.addEventListener('click', () => {
-        deformationMode = !deformationMode;
-        deformBtn.style.background = deformationMode ? '#43a047' : '#fff';
-        deformBtn.style.color = deformationMode ? '#fff' : '#333';
-        canvas.style.cursor = deformationMode ? 'grab' : 'auto';
-
-        // Hide debug objects when deformation mode is disabled
-        if (!deformationMode && debugSphere) {
-            debugSphere.visible = false;
-        }
-        if (!deformationMode && debugArrow) {
-            debugArrow.visible = false;
-        }
-
-        console.log('🫰 Deformation mode:', deformationMode ? 'ON' : 'OFF');
-    });
-    document.body.appendChild(deformBtn);
-    window.topControls.push(deformBtn);
 }
 function updateAudioIndicator(level) {
     const indicator = window.audioVolumeIndicator;
@@ -1376,44 +1310,6 @@ function updateAudioIndicator(level) {
     const height = Math.min(24, Math.max(2, level * 24)); // scale to 2–24px
     indicator.style.height = `${height}px`;
     indicator.style.background = `rgb(${Math.floor(level * 255)}, 100, 150)`; // dynamic color
-}
-
-// Cycle through mesh focus with blur effect
-function cycleMeshFocus() {
-    if (!window.scene) return;
-
-    // Get all sculpture meshes from the scene
-    const sculptureMeshes = window.scene.children.filter(child =>
-        child.type === 'Mesh' && child.name && child.name.length > 0
-    );
-
-    if (sculptureMeshes.length === 0) return;
-
-    // Initialize focus index if not set
-    if (typeof window.currentFocusIndex === 'undefined') {
-        window.currentFocusIndex = -1;
-    }
-
-    // Cycle to next mesh
-    window.currentFocusIndex = (window.currentFocusIndex + 1) % sculptureMeshes.length;
-    const focusedMesh = sculptureMeshes[window.currentFocusIndex];
-
-    // Apply blur effect when switching focus
-    triggerDelayedBlur(0, 500);
-
-    // Update camera to focus on the selected mesh
-    if (camera && focusedMesh) {
-        // Calculate a good camera position to focus on this mesh
-        const meshPosition = focusedMesh.position.clone();
-        const distance = 5;
-        const height = 2;
-
-        // Position camera to look at the mesh
-        camera.position.set(meshPosition.x, meshPosition.y + height, meshPosition.z + distance);
-        camera.lookAt(meshPosition);
-
-        console.log('Focused on mesh:', focusedMesh.name, 'at position:', meshPosition);
-    }
 }
 
 // Toggle header visibility (hide Shader Park header/nav)
@@ -1465,25 +1361,24 @@ function randomBrightColor() {
     const b = 64 + Math.floor(Math.random() * 192);
     return (r << 16) | (g << 8) | b;
 }
-
 function spinCameraAroundSelectedObject(axis = new THREE.Vector3(0, 1, 0), duration = 1000, angle = Math.PI) {
     const curr = store.state.currSculpture;
-
+let mymesh;
     if (curr && curr.id) {
         const match = store.state.objectsToUpdate.find(o => o && o.mesh && o.mesh.name === curr.id);
-        if (match && match.mesh) selected = match.mesh;
+        if (match && match.mesh) mymesh = match.mesh;
     }
 
     if (!store.state.selectedObject && store.state.objectsToUpdate.length > 0) {
-        selected = store.state.objectsToUpdate[0].mesh;
+        mymesh = store.state.objectsToUpdate[0].mesh;
     }
 
     if (!store.state.selectedObject && window.scene) {
         const meshes = window.scene.children.filter(obj => obj.type === 'Mesh');
-        if (meshes.length > 0) selected = meshes[0];
+        if (meshes.length > 0) mymesh = meshes[0];
     }
 
-    const object = seleted;
+    const object = mymesh;
     if (!object || !camera) return;
 
     const target = object.position.clone();
@@ -1747,7 +1642,6 @@ function handleKeyDown(e) {
             }
             break;
         case 'o': // Hue/Sat wobble hold
-            spinCamera180(false, 1250, 2.5);
             window.keyboard.holdO = true;
             if (hueSatPass && hueSatPass.uniforms) {
                 hueSatPass.enabled = true;
@@ -1905,11 +1799,6 @@ function handleKeyDown(e) {
             cycleSPExamples();
             break;
         }
-        case '6': {
-            // Cycle through sp-examples files
-            spinCameraAroundSelectedObject();
-            break;
-        }
         // Third row: content
         case 'z':
             // Generate lines set A (Hilbert dashed)
@@ -1918,7 +1807,7 @@ function handleKeyDown(e) {
         case 'x':
             // Really blurry morphing for pixelation
             if (pixelatePass) {
-                const targetValue = pixelatePass.enabled ? 0.0 : 0.1;
+                const targetValue = pixelatePass.enabled ? 0.0 : 1.0;
                 startBlurryMorph('pixelation', pixelatePass, targetValue);
                 console.log('Blurry morphing pixelation:', targetValue > 0 ? 'ON' : 'OFF');
             }
@@ -1931,6 +1820,10 @@ function handleKeyDown(e) {
                 console.log('Blurry morphing color inversion:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
+        case '6': {
+            spinCameraAroundSelectedObject();
+            break;
+        }
         case '1': {
             // Toggle icosahedron perspective positions around target
             const target = controls && controls.target ? controls.target.clone() : new Vector3(0,0,0);
@@ -2020,7 +1913,7 @@ function handleKeyDown(e) {
                 console.log('Blurry morphing chromatic aberration:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
-        case '7':
+        case 'n':
             // Really blurry morphing for ASCII effect
             if (asciiPass) {
                 const targetValue = asciiPass.enabled ? 0.0 : 1.0;
@@ -2549,9 +2442,9 @@ function randomizeAllParams() {
         try {
             if (effectController && effectController.enabled) {
                 const prev = { enabled: effectController.enabled };
-                effectController.fstop = rIn(0.5, 5.0);
+                // effectController.fstop = rIn(0.5, 5.0);
                 effectController.maxblur = rIn(0.0, 5.0);
-                effectController.focalDepth = rIn(10.0, 100.0);
+                // effectController.focalDepth = rIn(10.0, 100.0);
                 applyBokehToShaderAndGUI();
                 effectController.enabled = prev.enabled;
                 if (bokehPass) bokehPass.enabled = prev.enabled;
@@ -2812,6 +2705,7 @@ function getAudioModulation(multiplier = 0.5, useSin = true) {
     return 1.0 + (osc * audioLevel * multiplier);
 }
 
+let meshs;
 
 function init() {
     // handleGamepadInput()
@@ -2825,518 +2719,303 @@ renderer.setClearAlpha(1);
 renderer.setClearColor(0xffffff, 1);
 	canvasContainer.appendChild(renderer.domElement);
 
+
 	// Auto-focus canvas by simulating a click shortly after load
 	try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
 
 	// Setup post-processing composer
 	composer = new EffectComposer(renderer);
 	renderPass = new RenderPass(scene, camera);
-	// Attach params to renderPass for blending/blendingMode control via keyboard (key '4')
-	renderPass.params = renderPass.params || {};
-	if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
-	if (typeof renderPass.params.blendingMode !== 'number') renderPass.params.blendingMode = 1;
-	composer.addPass(renderPass);
 
-	// Setup bokeh depth shader material
-	const depthShader = BokehDepthShader;
-    // depthShader.fragmentShader = /* glsl */`
+
+
+
+
+    // var directionalLight = new THREE.DirectionalLight( 0xffffff, 1 );
+    // directionalLight.position.set( 2, 2, 2 );
+    // directionalLight.shadow.mapSize.set( 2048, 2048 );
+    // directionalLight.castShadow = true;
+    // scene.add( directionalLight );
     //
-	// 	uniform float mNear;
-	// 	uniform float mFar;
+    // var pmremGenerator = new THREE.PMREMGenerator( renderer );
+    // pmremGenerator.compileEquirectangularShader();
     //
-	// 	varying float vViewZDepth;
+    // new RGBELoader()
+    //     .setDataType( THREE.UnsignedByteType )
+    //     .setPath( 'https://rawgit.com/mrdoob/three.js/master/examples/textures/equirectangular/' )
+    //     .load( 'royal_esplanade_1k.hdr', function ( texture ) {
     //
-	// 	void main() {
+    //         var envMap = pmremGenerator.fromEquirectangular( texture ).texture;
     //
-	// 		float color = 1.0 - smoothstep( mNear, mFar, vViewZDepth );
-	// 		gl_FragColor = vec4( vec3( color ), texture2D(tDiffuse, vUv).a );
+    //         backgrounds.environment = envMap;
+    //         scene.environment = envMap;
     //
-	// 	}`;
-	materialDepth = new ShaderMaterial({
-		uniforms: depthShader.uniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader
-	});
-	materialDepth.uniforms['mNear'].value = camera.near;
-	materialDepth.uniforms['mFar'].value = camera.far;
+    //         texture.dispose();
+    //         pmremGenerator.dispose();
+    //
+    //     } );
+    //
+    // var models = [];
+    //
+    // var loaderObj = new OBJLoader();
+    // loaderObj.load(
+    //     'https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/happy.obj',
+    //     function ( object ) {
+    //
+    //         const model = object.children[ 0 ];
+    //         model.scale.setScalar( 10 );
+    //         model.geometry.center();
+    //         model.material = new THREE.MeshStandardMaterial( { color: 0xcc0000, roughness: 0.25 } );
+    //         model.updateMatrixWorld();
+    //
+    //         models[ 'Buddha' ] = model;
+    //
+    //         model.geometry.deleteAttribute( 'normal' );
+    //         model.geometry = BufferGeometryUtils.mergeVertices( model.geometry );
+    //         model.geometry.computeVertexNormals();
+    //
+    //     } );
+    //
+    // var loaderGLTF;
+    //
+    //
+    // loaderGLTF = new GLTFLoader();
+    // loaderGLTF.load(
+    //     'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DragonAttenuation/glTF-Binary/DragonAttenuation.glb',
+    //     function ( object ) {
+    //
+    //         const model = object.scene.children[ 0 ];
+    //         model.scale.setScalar( 0.1 );
+    //         model.position.setScalar( 0.0 );
+    //         model.geometry.center();
+    //         model.material = new THREE.MeshStandardMaterial( { color: 0xcc0000, roughness: 0.25 } );
+    //         model.updateMatrixWorld();
+    //
+    //         models[ 'Dragon' ] = model;
+    //
+    //         model.geometry.deleteAttribute( 'normal' );
+    //         model.geometry = BufferGeometryUtils.mergeVertices( model.geometry );
+    //         model.geometry.computeVertexNormals();
+    //
+    //     } );
 
-	// Setup bokeh pass
-	const bokehShader = BokehShader;
-	const bokehUniforms = UniformsUtils.clone(bokehShader.uniforms);
-	bokehUniforms['textureWidth'].value = window.innerWidth;
-	bokehUniforms['textureHeight'].value = window.innerHeight;
+    // Render Pass Setup
 
-	bokehPass = new ShaderPass({
-		uniforms: bokehUniforms,
-		vertexShader: bokehShader.vertexShader,
-		fragmentShader: bokehShader.fragmentShader,
-		defines: {
-			RINGS: shaderSettings.rings,
-			SAMPLES: shaderSettings.samples
-		}
-	});
+    composer = new EffectComposer( renderer );
 
 
-	// Add RGB Shift effect
-	rgbShiftPass = new ShaderPass(RGBShiftShader);
-	rgbShiftPass.uniforms.amount.value = params.rsy; // tweak strength
-	rgbShiftPass.uniforms.angle.value = params.rsx; // tweak strength
-	rgbShiftPass.enabled = true;
-	// bokehPass.renderToScreen = true; // Removed to allow proper composer chain with brightness/contrast
 
-	// Film pass (grain/scanlines), initially disabled
-	filmPass = new FilmPass(0.0, 0.0, 2048, false);
-	filmPass.enabled = false;
+    const skyMap = new THREE.CanvasTexture( canvas );
+    skyMap.colorSpace = THREE.SRGBColorSpace;
 
-	// Halftone pass (dots), initially disabled
-	halftonePass = new HalftonePass(window.innerWidth, window.innerHeight, {
-		radius: 12.0,
-		scatter: 0.0,
-		shape: 1,
-		greyscale: false,
+    const sky = new THREE.Mesh(
+        new THREE.SphereGeometry( 10 ),
+        new THREE.MeshBasicMaterial( { map: skyMap, side: THREE.BackSide } )
+    );
+    scene.add( sky );
 
-	});
-    halftonePass.material = new ShaderMaterial( {
-        blending: 0.5,
-        // blendMode: MultiplyBlending
-    } );
-    halftonePass.uniforms['greyscale'].value = false;
+    // Texture
 
-	halftonePass.enabled = false;
+    const size = 128;
+    const data = new Uint8Array( size * size * size );
 
-	// Dot screen pass, initially disabled
-	dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 2.0);
-	dotPass.enabled = false;
+    let i = 0;
+    const scale = 0.05;
+    const perlin = new ImprovedNoise();
+    const vector = new THREE.Vector3();
 
-	// Color-preserving Dot pass (disabled by default)
-	dotColorPass = new ShaderPass(DotColorShader);
-	dotColorPass.enabled = false;
+    for ( let z = 0; z < size; z ++ ) {
 
-	// Afterimage (motion blur) pass, initially disabled; default damp 0.94
-	afterimagePass = new AfterimagePass(0.94);
-	afterimagePass.enabled = false;
+        for ( let y = 0; y < size; y ++ ) {
 
-	// Initialize bokeh render targets
-	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
-	rtTextureColor = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
+            for ( let x = 0; x < size; x ++ ) {
 
-	// Set bokeh pass uniforms
-	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
-	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
+                const d = 1.0 - vector.set( x, y, z ).subScalar( size / 2 ).divideScalar( size ).length();
+                data[ i ] = ( 128 + 128 * perlin.noise( x * scale / 1.5, y * scale, z * scale / 1.5 ) ) * d * d;
+                i ++;
 
-	composer.addPass(rgbShiftPass);
-	// Hue/Saturation pass for palette toggles
-	hueSatPass = new ShaderPass(HueSaturationShader);
-	hueSatPass.enabled = false;
-	composer.addPass(hueSatPass);
-	// Brightness/Contrast pass for final grading
-	brightnessPass = new ShaderPass(BrightnessContrastShader);
-	brightnessPass.enabled = false;
-	if (brightnessPass.uniforms) {
-		brightnessPass.uniforms['brightness'].value = 0.0;
-		brightnessPass.uniforms['contrast'].value = 0.0;
-	}
-	// composer.addPass(brightnessPass);
-	// Mirror pass (screen-space flips)
-	mirrorPass = new ShaderPass(MirrorAxisShader);
-	mirrorPass.enabled = false;
-	composer.addPass(mirrorPass);
-	// Vignette pass (disabled by default)
-	vignettePass = new ShaderPass(VignetteShader);
-	vignettePass.enabled = false;
-	if (vignettePass.uniforms) {
-		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
-		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
-	}
-	composer.addPass(vignettePass);
+            }
 
-	// Third-row exclusive passes
-	// Bloom
-	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
-	bloomPass.enabled = false;
-	composer.addPass(bloomPass);
-	// SAO (ambient occlusion)
-	saoPass = new SAOPass(scene, camera, false, true);
-	saoPass.enabled = false;
-	if (saoPass.params) {
-		saoPass.params.saoBias = 0.5;
-		saoPass.params.saoIntensity = 0.015;
-		saoPass.params.saoScale = 1.0;
-		saoPass.params.saoKernelRadius = 16;
-		saoPass.params.saoMinResolution = 0;
-	}
-	composer.addPass(saoPass);
-	// CubeTexture pass (only effective if a cube background exists)
-	cubeTexturePass = new CubeTexturePass(camera, scene);
-	cubeTexturePass.enabled = false;
-	composer.addPass(cubeTexturePass);
-	composer.addPass(filmPass);
-	composer.addPass(halftonePass);
-    composer.addPass(dotColorPass);
-	composer.addPass(afterimagePass);
-	composer.addPass(bokehPass);
+        }
 
-	// Create ASCII pass
-	const asciiShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uFontSize': { value: 8.0 },
-			'uCharacters': { value: ' .:-=+*#%@' },
-			'uHueRandomness': { value: 0.0 },
-			'uSamplingMode': { value: 0 } // 0: simple, 1: accurate
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform vec2 uResolution;
-			uniform float uFontSize;
-			uniform float uHueRandomness;
-			uniform int uSamplingMode;
-			varying vec2 vUv;
-
-			// Function to convert RGB to HSV
-			vec3 rgb2hsv(vec3 c) {
-				vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-				vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-				vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-				float d = q.x - min(q.w, q.y);
-				float e = 1.0e-10;
-				return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-			}
-
-			// Function to convert HSV to RGB
-			vec3 hsv2rgb(vec3 c) {
-				vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-				vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-				return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-			}
-
-			// Pseudo-random function
-			float random(vec2 st) {
-				return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
-			}
-
-			void main() {
-				vec2 uv = vUv;
-				vec2 pixelCoord = uv * uResolution;
-				vec2 charCoord = floor(pixelCoord / uFontSize) * uFontSize;
-				vec2 localCoord = mod(pixelCoord, uFontSize) / uFontSize;
-
-				vec4 texColor;
-
-				if (uSamplingMode == 0) {
-					// Simple sampling - sample at character center
-					texColor = texture2D(tDiffuse, charCoord / uResolution);
-				} else {
-					// Accurate sampling - sample multiple points for better quality
-					vec2 sampleUV = charCoord / uResolution;
-					vec2 texelSize = 1.0 / uResolution;
-
-					// Sample 4 corners for better accuracy
-					vec4 c1 = texture2D(tDiffuse, sampleUV);
-					vec4 c2 = texture2D(tDiffuse, sampleUV + vec2(texelSize.x, 0.0));
-					vec4 c3 = texture2D(tDiffuse, sampleUV + vec2(0.0, texelSize.y));
-					vec4 c4 = texture2D(tDiffuse, sampleUV + texelSize);
-
-					texColor = (c1 + c2 + c3 + c4) * 0.25;
-				}
-
-				float brightness = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
-
-				// Create ASCII pattern based on brightness and character position
-				float ascii = 0.0;
-
-				// Map brightness to character index
-				int charIndex = int(brightness * float(uCharacters.length()));
-				charIndex = clamp(charIndex, 0, uCharacters.length() - 1);
-
-				// Simple character rendering based on character index
-				// For now, we'll use different patterns based on character brightness level
-				float charBrightness = float(charIndex) / float(uCharacters.length());
-
-				// Create different patterns based on character index
-				if (charIndex == 0) {
-					// '.' - single dot
-					ascii = step(localCoord.x, 0.2) * step(localCoord.y, 0.2) * step(0.8, localCoord.x) * step(0.8, localCoord.y);
-				} else if (charIndex <= 2) {
-					// ':' - two dots
-					float dot1 = step(localCoord.x, 0.2) * step(localCoord.y, 0.2) * step(0.8, localCoord.x) * step(0.3, localCoord.y);
-					float dot2 = step(localCoord.x, 0.2) * step(localCoord.y, 0.7) * step(0.8, localCoord.x) * step(0.3, localCoord.y);
-					ascii = dot1 + dot2;
-				} else if (charIndex <= 5) {
-					// '-' - horizontal line
-					ascii = step(localCoord.y, 0.6) * step(0.4, localCoord.y);
-				} else if (charIndex <= 8) {
-					// '+' - cross
-					float hLine = step(localCoord.y, 0.6) * step(0.4, localCoord.y);
-					float vLine = step(localCoord.x, 0.6) * step(0.4, localCoord.x);
-					ascii = hLine + vLine;
-				} else {
-					// Full block for brighter characters
-					ascii = step(localCoord.x, 0.9) * step(localCoord.y, 0.9);
-				}
-
-				ascii *= charBrightness;
-
-				vec3 finalColor = vec3(ascii);
-
-				// Apply hue randomization if enabled
-				if (uHueRandomness > 0.0) {
-					vec3 hsv = rgb2hsv(finalColor);
-					float hueShift = (random(charCoord) - 0.5) * uHueRandomness;
-					hsv.x = fract(hsv.x + hueShift);
-					finalColor = hsv2rgb(hsv);
-				}
-
-				gl_FragColor = vec4(finalColor, texColor.a);
-			}
-		`
-	};
-
-	asciiPass = new ShaderPass(asciiShader);
-	asciiPass.enabled = false; // Start disabled
-	composer.addPass(asciiPass);
-
-	// Create blur pass for really blurry morphing
-	blurPass = new ShaderPass(blurShader);
-	blurPass.enabled = false; // Start disabled
-	composer.addPass(blurPass);
-
-	// Create vignette pass for V key
-	const vignetteShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'offset': { value: 1.0 },
-			'darkness': { value: 1.5 }
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform float offset;
-			uniform float darkness;
-			varying vec2 vUv;
-
-			void main() {
-				vec4 texColor = texture2D(tDiffuse, vUv);
-				vec2 uv = (vUv - vec2(0.5)) * vec2(offset);
-				float vignette = 1.0 - dot(uv, uv) * darkness;
-				vignette = clamp(vignette, 0.0, 1.0);
-				gl_FragColor = texColor * vignette;
-			}
-		`
-	};
-
-	vignettePass = new ShaderPass(vignetteShader);
-	vignettePass.enabled = false;
-	composer.addPass(vignettePass);
-
-	// Create color inversion pass for C key
-	const invertShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'intensity': { value: 0.0 }
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform float intensity;
-			varying vec2 vUv;
-
-			void main() {
-				vec4 texColor = texture2D(tDiffuse, vUv);
-				vec4 inverted = vec4(1.0 - texColor.rgb, texColor.a);
-				gl_FragColor = mix(texColor, inverted, intensity);
-			}
-		`
-	};
-
-	invertPass = new ShaderPass(invertShader);
-	invertPass.enabled = false;
-	composer.addPass(invertPass);
-
-	// Create pixelation pass for X key
-	const pixelateShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uPixelSize': { value: 0.1 }
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform vec2 uResolution;
-			uniform float uPixelSize;
-			varying vec2 vUv;
-
-			void main() {
-				vec2 pixelCoord = floor(vUv * uResolution / uPixelSize) * uPixelSize / uResolution;
-				vec4 texColor = texture2D(tDiffuse, pixelCoord);
-				gl_FragColor = texColor;
-			}
-		`
-	};
-
-	pixelatePass = new ShaderPass(pixelateShader);
-	pixelatePass.enabled = false;
-	composer.addPass(pixelatePass);
-
-	// Setup GUI controls for bokeh effect
-	setupBokehGUI();
-
-console.log('router.currentRoute.path', router.currentRoute.path)
-
-    if (!router.currentRoute.path.startsWith('/game/')) {
-        // Not in a game route
-        setupHalftoneGUI();
-        setupAsciiGUI();
     }
-	// Setup GUI controls for halftone blending
 
-	// Setup GUI controls for ASCII effect
+    const texture = new THREE.Data3DTexture( data, size, size, size );
+    texture.format = THREE.RedFormat;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.unpackAlignment = 1;
+    texture.needsUpdate = true;
+
+    // Material
+
+    const vertexShader = /* glsl */`
+					in vec3 position;
+
+					uniform mat4 modelMatrix;
+					uniform mat4 modelViewMatrix;
+					uniform mat4 projectionMatrix;
+					uniform vec3 cameraPos;
+
+					out vec3 vOrigin;
+					out vec3 vDirection;
+
+					void main() {
+						vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+
+						vOrigin = vec3( inverse( modelMatrix ) * vec4( cameraPos, 1.0 ) ).xyz;
+						vDirection = position - vOrigin;
+
+						gl_Position = projectionMatrix * mvPosition;
+					}
+				`;
+
+    const fragmentShader = /* glsl */`
+					precision highp float;
+					precision highp sampler3D;
+
+					uniform mat4 modelViewMatrix;
+					uniform mat4 projectionMatrix;
+
+					in vec3 vOrigin;
+					in vec3 vDirection;
+
+					out vec4 color;
+
+					uniform vec3 base;
+					uniform sampler3D map;
+
+					uniform float threshold;
+					uniform float range;
+					uniform float opacity;
+					uniform float steps;
+					uniform float frame;
+
+					uint wang_hash(uint seed)
+					{
+							seed = (seed ^ 61u) ^ (seed >> 16u);
+							seed *= 9u;
+							seed = seed ^ (seed >> 4u);
+							seed *= 0x27d4eb2du;
+							seed = seed ^ (seed >> 15u);
+							return seed;
+					}
+
+					float randomFloat(inout uint seed)
+					{
+							return float(wang_hash(seed)) / 4294967296.;
+					}
+
+					vec2 hitBox( vec3 orig, vec3 dir ) {
+						const vec3 box_min = vec3( - 0.5 );
+						const vec3 box_max = vec3( 0.5 );
+						vec3 inv_dir = 1.0 / dir;
+						vec3 tmin_tmp = ( box_min - orig ) * inv_dir;
+						vec3 tmax_tmp = ( box_max - orig ) * inv_dir;
+						vec3 tmin = min( tmin_tmp, tmax_tmp );
+						vec3 tmax = max( tmin_tmp, tmax_tmp );
+						float t0 = max( tmin.x, max( tmin.y, tmin.z ) );
+						float t1 = min( tmax.x, min( tmax.y, tmax.z ) );
+						return vec2( t0, t1 );
+					}
+
+					float sample1( vec3 p ) {
+						return texture( map, p ).r;
+					}
+
+					float shading( vec3 coord ) {
+						float step = 0.01;
+						return sample1( coord + vec3( - step ) ) - sample1( coord + vec3( step ) );
+					}
+
+					vec4 linearToSRGB( in vec4 value ) {
+						return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92, vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
+					}
+
+					void main(){
+						vec3 rayDir = normalize( vDirection );
+						vec2 bounds = hitBox( vOrigin, rayDir );
+
+						if ( bounds.x > bounds.y ) discard;
+
+						bounds.x = max( bounds.x, 0.0 );
+
+						vec3 p = vOrigin + bounds.x * rayDir;
+						vec3 inc = 1.0 / abs( rayDir );
+						float delta = min( inc.x, min( inc.y, inc.z ) );
+						delta /= steps;
+
+						// Jitter
+
+						// Nice little seed from
+						// https://blog.demofox.org/2020/05/25/casual-shadertoy-path-tracing-1-basic-camera-diffuse-emissive/
+						uint seed = uint( gl_FragCoord.x ) * uint( 1973 ) + uint( gl_FragCoord.y ) * uint( 9277 ) + uint( frame ) * uint( 26699 );
+						vec3 size = vec3( textureSize( map, 0 ) );
+						float randNum = randomFloat( seed ) * 2.0 - 1.0;
+						p += rayDir * randNum * ( 1.0 / size );
+
+						//
+
+						vec4 ac = vec4( base, 0.0 );
+
+						for ( float t = bounds.x; t < bounds.y; t += delta ) {
+
+							float d = sample1( p + 0.5 );
+
+							d = smoothstep( threshold - range, threshold + range, d ) * opacity;
+
+							float col = shading( p + 0.5 ) * 3.0 + ( ( p.x + p.y ) * 0.25 ) + 0.2;
+
+							ac.rgb += ( 1.0 - ac.a ) * d * col;
+
+							ac.a += ( 1.0 - ac.a ) * d;
+
+							if ( ac.a >= 0.95 ) break;
+
+							p += rayDir * delta;
+
+						}
+
+						color = linearToSRGB( ac );
+
+						if ( color.a == 0.0 ) discard;
+
+					}
+				`;
+
+    const geometry = new THREE.BoxGeometry( 1, 1, 1 );
+    const material = new THREE.RawShaderMaterial( {
+        glslVersion: THREE.GLSL3,
+        uniforms: {
+            base: { value: new THREE.Color( 0x798aa0 ) },
+            map: { value: texture },
+            cameraPos: { value: new THREE.Vector3() },
+            threshold: { value: 0.25 },
+            opacity: { value: 0.25 },
+            range: { value: 0.1 },
+            steps: { value: 100 },
+            frame: { value: 0 }
+        },
+        vertexShader,
+        fragmentShader,
+        side: THREE.BackSide,
+        transparent: true
+    } );
+
+    meshs = new THREE.Mesh( geometry, material );
+    scene.add( meshs );
+
+    //
+
+    const parameters = {
+        threshold: 0.25,
+        opacity: 0.25,
+        range: 0.1,
+        steps: 100
+    };
 
 
-	// Apply initial background according to bgMode
-	try { applyBackground(window.bgMode || 1); } catch(e){}
 
-	canvas = document.querySelector('canvas');
-	canvas.setAttribute('tabindex', '0');
-	canvas.setAttribute('powerPreference', 'high-performance');
-	canvas.addEventListener('click', (event) => {
-		event.target.focus();
-	});
-
-	// Add mouse interaction for bokeh focus
-	canvas.addEventListener('pointermove', onPointerMove);
-
-	// canvas.addEventListener('mousemove', onMouseMove, false);
-    console.log("Gamepad:", navigator.getGamepads()[0]);
-
-	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
-	controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true; // Restore damping for smooth mouse controls
-	controls.enablePan = true; // Enable right-click panning to move objects/camera
-	controls.dampingFactor = 0.25;
-	controls.zoomSpeed = 0.5;
-	controls.rotateSpeed = 0.5;
-	controls.keys = {
-		LEFT: 65,
-		UP: 87,
-		RIGHT: 68,
-		BOTTOM: 83
-	};
-
-	mapControls = new MapControls(camera, renderer.domElement);
-	mapControls.enableDamping = true; // Restore damping for smooth mouse controls
-	mapControls.dampingFactor = 0.25;
-	mapControls.screenSpacePanning = false;
-	mapControls.maxPolarAngle = Math.PI / 2;
-
-	window.mapControls = mapControls;
-	window.controls = controls;
-	camera.position.set(6, 2.5, 4);
-	// controls.target.set(6, 0, 0);
-
-    scene.add(hemisphereLight);
-
-    // Add colorful accent lights (increased intensity for visibility)
-    redLight = new THREE.PointLight(0xff0040, 5, 15);
-    redLight.position.set(-3, 2, 3);
-
-    blueLight = new THREE.PointLight(0x0040ff, 5, 15);
-    blueLight.position.set(3, 2, -3);
-
-    greenLight = new THREE.PointLight(0x40ff00, 5, 15);
-    greenLight.position.set(0, 3, 3);
-
-    purpleLight = new THREE.PointLight(0x8000ff, 4, 12);
-    purpleLight.position.set(-2, 1, -2);
-
-    orangeLight = new THREE.PointLight(0xff8000, 4, 12);
-    orangeLight.position.set(2, 1, 2);
-
-    console.log('Colorful lights created:', { redLight, blueLight, greenLight, purpleLight, orangeLight });
-
-    // Add lights to scene
-    scene.add(redLight);
-    scene.add(blueLight);
-    scene.add(greenLight);
-    scene.add(purpleLight);
-    scene.add(orangeLight);
-
-
-    const loader = new FontLoader();
-    loader.load('/fonts/helvetiker_regular.typeface.json', function (font) {
-        const textGeo = new TextGeometry('your place\n your time', {
-            font: font,
-            size: 115,
-            height: 222,
-            curveSegments: 12,
-            bevelEnabled: true,
-            bevelThickness: 0.5,
-            bevelSize: 0.3,
-            bevelSegments: 3
-        });
-
-        const textMaterial = new MeshStandardMaterial({ color: 0x5555ff });
-        const textMesh = new Mesh(textGeo, textMaterial);
-        textMesh.position.set(0, 0, 0);
-        scene.add(textMesh);
-    });
-
-    render();
-
-	// Audio UI (small button top-left)
-	createAudioUI();
-	setupKeyboardControls();
-
-    // Helper globals
-    window.headerHidden = true;
-}
-
-
-function initGame() {
-    // handleGamepadInput()
-	canvasContainer = document.querySelector('.canvas-container');
-	renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', alpha: true});
-	renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
-	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
-    Object.assign(store.state.canvasSize, prevCanvasSize);
-	renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearAlpha(1);
-renderer.setClearColor(0xffffff, 1);
-	canvasContainer.appendChild(renderer.domElement);
-
-	// Auto-focus canvas by simulating a click shortly after load
-	try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
-
-	// Setup post-processing composer
-	composer = new EffectComposer(renderer);
-	renderPass = new RenderPass(scene, camera);
 	// Attach params to renderPass for blending/blendingMode control via keyboard (key '4')
 	renderPass.params = renderPass.params || {};
 	if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
@@ -3345,6 +3024,91 @@ renderer.setClearColor(0xffffff, 1);
 
 	// Setup bokeh depth shader material
 	const depthShader = BokehDepthShader;
+
+    fxaaPass = new ShaderPass( FXAAShader );
+    fxaaPass.uniforms[ 'resolution' ].value.set( 1 / window.innerWidth, 1 / window.innerHeight );
+
+    gammaPass = new ShaderPass( GammaCorrectionShader );
+
+    var translucentPass;
+
+    // translucentPass = new TranslucentObjectPass( scene, camera );
+    // translucentPass.objects = [];
+
+    // composer.setSize( window.innerWidth, window.innerHeight );
+    // composer.setPixelRatio( window.devicePixelRatio );
+    composer.addPass( renderPass );
+    // composer.addPass( fxaaPass );
+    // composer.addPass( gammaPass );
+
+    // composer = new EffectComposer( renderer );
+    // composer.setSize( window.innerWidth, window.innerHeight );
+    // composer.setPixelRatio( window.devicePixelRatio );
+    // composer.addPass( renderPass );
+    // composer.addPass( motionPass );
+    // composer.addPass( fxaaPass );
+    // composer.addPass( gammaPass );
+
+    // stats
+    stats = new Stats();
+    document.body.appendChild( stats.dom );
+
+    // camera controls
+    // controls = new OrbitControls( camera, renderer.domElement );
+    // controls.minDistance = 5;
+    // controls.maxDistance = 200;
+
+    // window.addEventListener( 'resize', onWindowResize, false );
+
+    // dat gui
+    // var gui = new dat.GUI();
+    var gui = new GUI();
+    gui.width = 300;
+
+    // var motionFolder = gui.addFolder( 'motion blur' );
+    // motionFolder.add( paramsMB, 'enabled' );
+    // motionFolder.add( paramsMB, 'cameraBlur' );
+    // motionFolder.add( paramsMB, 'samples', 0, 50 ).step( 1 );
+    // motionFolder.add( paramsMB, 'jitter', 0, 5 ).step( 0.01 );
+    // motionFolder.add( paramsMB, 'jitterStrategy', {
+    //     REGULAR_JITTER: MotionBlurPass.REGULAR_JITTER,
+    //     RANDOM_JITTER: MotionBlurPass.RANDOM_JITTER,
+    //     BLUENOISE_JITTER: MotionBlurPass.BLUENOISE_JITTER,
+    // } );
+    // motionFolder.add( paramsMB, 'smearIntensity', 0, 4 );
+    // motionFolder.add( paramsMB, 'expandGeometry', 0, 1 );
+    // motionFolder.add( paramsMB, 'interpolateGeometry', 0, 1 );
+    // motionFolder.add( paramsMB, 'renderTargetScale', 0, 1 )
+    //     .onChange( v => {
+    //         motionPass.renderTargetScale = v;
+    //         onWindowResize();
+    //
+    //     } );
+    //
+    // motionFolder.add( motionPass.debug, 'display', {
+    //     'Motion Blur': MotionBlurPass.DEFAULT,
+    //     'Velocity': MotionBlurPass.VELOCITY,
+    //     'Geometry': MotionBlurPass.GEOMETRY
+    // } ).onChange( val => motionPass.debug.display = parseFloat(val) );
+    // motionFolder.open();
+    //
+    // var animFolder = gui.addFolder( 'animation' );
+    // animFolder.add( paramsMB, 'animate' );
+    // animFolder.add( paramsMB, 'speed', 0, 50 );
+    // animFolder.open();
+    //
+    // gui.open();
+
+
+
+
+
+
+
+
+
+
+
     // depthShader.fragmentShader = /* glsl */`
     //
 	// 	uniform float mNear;
@@ -3684,7 +3448,7 @@ renderer.setClearColor(0xffffff, 1);
 		uniforms: {
 			'tDiffuse': { value: null },
 			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uPixelSize': { value: 0.1 }
+			'uPixelSize': { value: 4.0 }
 		},
 		vertexShader: `
 			varying vec2 vUv;
@@ -3714,16 +3478,11 @@ renderer.setClearColor(0xffffff, 1);
 	// Setup GUI controls for bokeh effect
 	setupBokehGUI();
 
-console.log('router.currentRoute.path', router.currentRoute.path)
-
-    if (!router.currentRoute.path.startsWith('/game/')) {
-        // Not in a game route
-        setupHalftoneGUI();
-        setupAsciiGUI();
-    }
 	// Setup GUI controls for halftone blending
+	setupHalftoneGUI();
 
 	// Setup GUI controls for ASCII effect
+	setupAsciiGUI();
 
 
 	// Apply initial background according to bgMode
@@ -3768,6 +3527,12 @@ console.log('router.currentRoute.path', router.currentRoute.path)
 	// controls.target.set(6, 0, 0);
 
     scene.add(hemisphereLight);
+
+
+
+
+
+
 
     // Add colorful accent lights (increased intensity for visibility)
     redLight = new THREE.PointLight(0xff0040, 5, 15);
@@ -3942,7 +3707,7 @@ function handleGamepadInput() {
 
             }
 
-            const rotateSpeed = 2.0; // Object rotation speed
+            const rotateSpeed = 12.0; // Object rotation speed
             const moveSpeed = 0.5; // Camera movement speed
 
             // Get current selected object position for rotation center
@@ -4177,7 +3942,7 @@ function handleGamepadButtonPresses(gamepad) {
 
             camera.position.set(store.state.initialCameraPose[0], store.state.initialCameraPose[1], store.state.initialCameraPose[2]);
             controls.target.set(store.state.initialCameraPose[0], 0, 0);
-            mapControls.target.set(store.state.initialCameraPose[0], 0, 0);
+            mapControls.target.set(store.state.initialCameraPose[0], 20, 0);
             console.log('🎮 Reset camera position');
         }
     }
@@ -4271,11 +4036,11 @@ function ensureLinesParent() {
 }
 
 function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
-    // clearGeneratedLines();
-    // const parent = ensureLinesParent();
-    // const group = new Group();
-    // window.generatedLines = group;
-    // parent.add(group);
+    clearGeneratedLines();
+    const parent = ensureLinesParent();
+    const group = new Group();
+    window.generatedLines = group;
+    parent.add(group);
 
     // Parameters
     const recursion = 1;
@@ -4289,14 +4054,14 @@ function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
     // const spline = new CatmullRomCurve3(basePoints);
     // const samples = spline.getPoints(basePoints.length * subdivisions);
     //
-    // // Add noise and wave offset
-    // samples.forEach((p, i) => {
-    //     const t = i / samples.length;
-    //     const offset = Math.sin(t * Math.PI * 4) * 0.3 * (params?.rsx ?? 1);
-    //     p.x += (Math.random() - 0.5) * 2 + offset;
-    //     p.y += (Math.random() - 0.5) * 2 + offset * (params?.rsy ?? 1);
-    //     p.z += (Math.random() - 0.5) * 2;
-    // });
+    // Add noise and wave offset
+    samples.forEach((p, i) => {
+        const t = i / samples.length;
+        const offset = Math.sin(t * Math.PI * 4) * 0.3 * (params?.rsx ?? 1);
+        p.x += (Math.random() - 0.5) * 2 + offset;
+        p.y += (Math.random() - 0.5) * 2 + offset * (params?.rsy ?? 1);
+        p.z += (Math.random() - 0.5) * 2;
+    });
 
 
 
@@ -4307,70 +4072,70 @@ function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
 
     // Create base geometry
     const geometrySpline = new BufferGeometry().setFromPoints(samples);
-    // const baseMaterial = new LineDashedMaterial({
-    //     scale: 2,
-    //     color: color,
-    //     dashSize: 1,
-    //     gapSize: 0.5
-    // });
+    const baseMaterial = new LineDashedMaterial({
+        scale: 2,
+        color: color,
+        dashSize: 1,
+        gapSize: 0.5
+    });
 
-    // // Add original line
-    // const originalLine = new Line(geometrySpline, baseMaterial);
-    // originalLine.computeLineDistances();
-    // group.add(originalLine);
-    //
-    // // Clone and style lines
-    // for (let i = 1; i < lineCount; i++) {
-    //     const clone = originalLine.clone();
-    //     clone.material = baseMaterial.clone();
-    //
-    //     // Positioning
-    //     // const angle = (Math.PI * 2 * i) / lineCount;
-    //     // clone.position.x = Math.cos(angle) * spread * i;
-    //     // clone.position.y = Math.sin(angle) * spread * i;
-    //
-    //     // Kaleidoscopic mirroring
-    //     if (kaleidoscope && i % 2 === 0) {
-    //         clone.scale.x *= -1;
-    //         clone.scale.y *= -1;
-    //     }
-    //
-    //     // Color shift
-    //     const hueShift = (i * 30) % 360;
-    //     clone.material.color.setHSL(hueShift / 360, 1, 0.5);
-    //
-    //     group.add(clone);
-    // }
+    // Add original line
+    const originalLine = new Line(geometrySpline, baseMaterial);
+    originalLine.computeLineDistances();
+    group.add(originalLine);
+
+    // Clone and style lines
+    for (let i = 1; i < lineCount; i++) {
+        const clone = originalLine.clone();
+        clone.material = baseMaterial.clone();
+
+        // Positioning
+        // const angle = (Math.PI * 2 * i) / lineCount;
+        // clone.position.x = Math.cos(angle) * spread * i;
+        // clone.position.y = Math.sin(angle) * spread * i;
+
+        // Kaleidoscopic mirroring
+        if (kaleidoscope && i % 2 === 0) {
+            clone.scale.x *= -1;
+            clone.scale.y *= -1;
+        }
+
+        // Color shift
+        const hueShift = (i * 30) % 360;
+        clone.material.color.setHSL(hueShift / 360, 1, 0.5);
+
+        group.add(clone);
+    }
 
 }
 
 function generateLinesSetB() {
-    // clearGeneratedLines();
-    // const parent = ensureLinesParent();
-    // const group = new Group();
-    // window.generatedLines = group;
-    // parent.add(group);
-    //
-    // // Lissajous-style curve set
-    // const curves = 1; // reduced ~3x
-    // for (let k = 0; k < curves; k++) {
-    //     const pts = [];
-    //     const a = 2 + k;
-    //     const b = 3 + k;
-    //     const delta = Math.PI / (k + 2);
-    //     for (let i = 0; i <= 400; i++) {
-    //         const t = i / 400 * Math.PI * 2;
-    //         const x = Math.sin(a * t + delta) * 2.5 + k * 0.3;
-    //         const y = Math.sin(b * t) * 2.5 + k * 0.2;
-    //         const z = Math.cos((a + b) * t) * 2.5;
-    //         pts.push(new Vector3(x, y, z));
-    //     }
-    //     const g = new BufferGeometry().setFromPoints(pts);
-    //     const m = new LineDashedMaterial({ color: 0x88ccff, dashSize: 0.6, gapSize: 0.35 });
-    //     const l = new Line(g, m);
-    //     l.computeLineDistances();
-    //     group.add(l);
-    // }
+    clearGeneratedLines();
+    const parent = ensureLinesParent();
+    const group = new Group();
+    window.generatedLines = group;
+    parent.add(group);
+
+    // Lissajous-style curve set
+    const curves = 1; // reduced ~3x
+    for (let k = 0; k < curves; k++) {
+        const pts = [];
+        const a = 2 + k;
+        const b = 3 + k;
+        const delta = Math.PI / (k + 2);
+        for (let i = 0; i <= 400; i++) {
+            const t = i / 400 * Math.PI * 2;
+            const x = Math.sin(a * t + delta) * 2.5 + k * 0.3;
+            const y = Math.sin(b * t) * 2.5 + k * 0.2;
+            const z = Math.cos((a + b) * t) * 2.5;
+            pts.push(new Vector3(x, y, z));
+        }
+        const g = new BufferGeometry().setFromPoints(pts);
+        const m = new LineDashedMaterial({ color: 0x88ccff, dashSize: 0.6, gapSize: 0.35 });
+        const l = new Line(g, m);
+        l.computeLineDistances();
+        group.add(l);
+    }
 }
 
 // Trail line generator (Hilbert-based with clones and color shifts)
@@ -4502,7 +4267,7 @@ function handleGamepadTriggers(gamepad) {
     // Right Bumper (Toggle Bokeh effect and smooth-randomize parameters)
     if (window.gamepadState.rightBumper && !window.gamepadButtonRightBumperPressed) {
         window.gamepadButtonRightBumperPressed = true;
-        // effectController.enabled = !effectController.enabled;
+        effectController.enabled = !effectController.enabled;
         if (effectController.enabled) {
             smoothRandomizeBokeh(1000);
             console.log('🎮 Bokeh effect ENABLED with randomized parameters');
@@ -4530,10 +4295,6 @@ function handleGamepadTriggers(gamepad) {
         console.log ('L2', l2
         )
         if (l2 > 0.05) {
-
-            niceBlurPulse(2300, 650);
-            spinCamera180(false, 5250, 0.1);
-            
             // Film grain
             if (filmPass && filmPass.uniforms) {
                 filmPass.enabled = true;
@@ -4566,10 +4327,10 @@ function handleGamepadTriggers(gamepad) {
                 afterimagePass.uniforms['damp'].value = Math.max(0.6, base - l2 * 0.5);
             }
             // Bokeh focal depth 40..50
-            effectController.focalDepth = 40 + l2 * 10;
-            if (bokehPass && bokehPass.uniforms && bokehPass.uniforms['focalDepth']) {
-                bokehPass.uniforms['focalDepth'].value = effectController.focalDepth;
-            }
+            // effectController.focalDepth = 40 + l2 * 10;
+            // if (bokehPass && bokehPass.uniforms && bokehPass.uniforms['focalDepth']) {
+            //     bokehPass.uniforms['focalDepth'].value = effectController.focalDepth;
+            // }
 
             // Edge-trigger fractal aberration on L2 press-in
             if (!window.fractalL2Active && l2 > 0.2) {
@@ -4590,8 +4351,6 @@ console.log ('L2', l2)
                 spinCamera180(false, 400, 1);
             }
         } else {
-            window.rotateXEnabled = false;
-
             if (filmPass) filmPass.enabled = false;
             if (halftonePass) halftonePass.enabled = false;
             window.spinL2Triggered = false;
@@ -4628,22 +4387,22 @@ window.handleGamepadTriggers = handleGamepadTriggers;
 // Randomize bokeh parameters for creative effects
 function randomizeBokehParameters() {
     // Randomize various bokeh parameters for interesting effects
-    effectController.fstop = 0.5 + Math.random() * 20; // 0.5-20.5
+    // effectController.fstop = 0.5 + Math.random() * 20; // 0.5-20.5
     effectController.maxblur = Math.random() * 5; // 0-5
-    effectController.focalDepth = Math.random() * 50 + 5; // 5-55
-    effectController.threshold = Math.random() * 0.5 + 0.25; // 0.25-0.75
-    effectController.gain = Math.random() * 95 + 5; // 5-100
-    effectController.bias = Math.random() * 2.5 + 0.25; // 0.25-2.75
+    // effectController.focalDepth = Math.random() * 50 + 5; // 5-55
+    // effectController.threshold = Math.random() * 0.5 + 0.25; // 0.25-0.75
+    // effectController.gain = Math.random() * 95 + 5; // 5-100
+    // effectController.bias = Math.random() * 2.5 + 0.25; // 0.25-2.75
     effectController.fringe = Math.random() * 49.75 + 0.25; // 0.25-6.75
     effectController.focalLength = Math.random() * 60 + 10; // 10-70
 
     // Randomly enable/disable some effects
-    effectController.showFocus = Math.random() > 0.7;
-    effectController.manualdof = Math.random() > 0.8;
+    // effectController.showFocus = Math.random() > 0.7;
+    // effectController.manualdof = Math.random() > 0.8;
     effectController.vignetting = Math.random() > 0.6;
     effectController.depthblur = Math.random() > 0.7;
-    effectController.noise = Math.random() > 0.8;
-    effectController.pentagon = Math.random() > 0.9;
+    // effectController.noise = Math.random() > 0.8;
+    // effectController.pentagon = Math.random() > 0.9;
 
     // Update the shader with new values
     const matChanger = function () {
@@ -4925,9 +4684,9 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             try {
                 if (effectController && effectController.enabled) {
                     const prev = { enabled: effectController.enabled };
-                    effectController.fstop = rIn(0.5, 5.0);
+                    // effectController.fstop = rIn(0.5, 5.0);
                     effectController.maxblur = rIn(0.0, 5.0);
-                    effectController.focalDepth = rIn(10.0, 100.0);
+                    // effectController.focalDepth = rIn(10.0, 100.0);
                     applyBokehToShaderAndGUI();
                     effectController.enabled = prev.enabled;
                     if (bokehPass) bokehPass.enabled = prev.enabled;
@@ -4948,54 +4707,54 @@ function smoothRandomizeAllParams(durationMs = 2000) {
 function smoothRandomizeBokeh(durationMs = 1000) {
     // Generate target params (reuse ranges from randomizeBokehParameters)
     const target = {
-        fstop: 0.5 + Math.random() * 20,
+        // fstop: 0.5 + Math.random() * 20,
         maxblur: Math.random() * 5,
-        focalDepth: Math.random() * 50 + 5,
-        threshold: Math.random() * 0.5 + 0.25,
-        gain: Math.random() * 95 + 5,
-        bias: Math.random() * 2.5 + 0.25,
+        // focalDepth: Math.random() * 50 + 5,
+        // threshold: Math.random() * 0.5 + 0.25,
+        // gain: Math.random() * 95 + 5,
+        // bias: Math.random() * 2.5 + 0.25,
         fringe: Math.random() * 49.75 + 0.25,
         focalLength: Math.random() * 60 + 10,
-        showFocus: Math.random() > 0.7 ? 1 : 0,
-        manualdof: Math.random() > 0.8 ? 1 : 0,
-        vignetting: Math.random() > 0.6 ? 1 : 0,
-        depthblur: Math.random() > 0.7 ? 1 : 0,
-        noise: Math.random() > 0.8 ? 1 : 0,
-        pentagon: Math.random() > 0.9 ? 1 : 0
+        // showFocus: Math.random() > 0.7 ? 1 : 0,
+        // manualdof: Math.random() > 0.8 ? 1 : 0,
+        // vignetting: Math.random() > 0.6 ? 1 : 0,
+        // depthblur: Math.random() > 0.7 ? 1 : 0,
+        // noise: Math.random() > 0.8 ? 1 : 0,
+        // pentagon: Math.random() > 0.9 ? 1 : 0
     };
 
     const state = {
-        fstop: effectController.fstop,
+        // fstop: effectController.fstop,
         maxblur: effectController.maxblur,
-        focalDepth: effectController.focalDepth,
-        threshold: effectController.threshold,
-        gain: effectController.gain,
-        bias: effectController.bias,
+        // focalDepth: effectController.focalDepth,
+        // threshold: effectController.threshold,
+        // gain: effectController.gain,
+        // bias: effectController.bias,
         fringe: effectController.fringe,
         focalLength: effectController.focalLength,
-        showFocus: effectController.showFocus ? 1 : 0,
-        manualdof: effectController.manualdof ? 1 : 0,
-        vignetting: effectController.vignetting ? 1 : 0,
-        depthblur: effectController.depthblur ? 1 : 0,
-        noise: effectController.noise ? 1 : 0,
-        pentagon: effectController.pentagon ? 1 : 0
+        // showFocus: effectController.showFocus ? 1 : 0,
+        // manualdof: effectController.manualdof ? 1 : 0,
+        // vignetting: effectController.vignetting ? 1 : 0,
+        // depthblur: effectController.depthblur ? 1 : 0,
+        // noise: effectController.noise ? 1 : 0,
+        // pentagon: effectController.pentagon ? 1 : 0
     };
 
     const applyState = () => {
-        effectController.fstop = state.fstop;
+        // effectController.fstop = state.fstop;
         effectController.maxblur = state.maxblur;
-        effectController.focalDepth = state.focalDepth;
-        effectController.threshold = state.threshold;
-        effectController.gain = state.gain;
-        effectController.bias = state.bias;
+        // effectController.focalDepth = state.focalDepth;
+        // effectController.threshold = state.threshold;
+        // effectController.gain = state.gain;
+        // effectController.bias = state.bias;
         effectController.fringe = state.fringe;
         effectController.focalLength = state.focalLength;
-        effectController.showFocus = state.showFocus > 0.5;
-        effectController.manualdof = state.manualdof > 0.5;
-        effectController.vignetting = state.vignetting > 0.5;
-        effectController.depthblur = state.depthblur > 0.5;
-        effectController.noise = state.noise > 0.5;
-        effectController.pentagon = state.pentagon > 0.5;
+        // effectController.showFocus = state.showFocus > 0.5;
+        // effectController.manualdof = state.manualdof > 0.5;
+        // effectController.vignetting = state.vignetting > 0.5;
+        // effectController.depthblur = state.depthblur > 0.5;
+        // effectController.noise = state.noise > 0.5;
+        // effectController.pentagon = state.pentagon > 0.5;
 
         // Update shader uniforms (inline matChanger)
         for (const e in effectController) {
@@ -5037,7 +4796,7 @@ function smoothRandomizeBokeh(durationMs = 1000) {
 function triggerDelayedBlur(delayMs = 1000, durationMs = 1000) {
     setTimeout(() => {
         effectController.enabled = true;
-        effectController.maxblur = 12.0;
+        effectController.maxblur = Math.random(0, 20 );
         effectController.fstop = 1.0;
         // Push to shader immediately
         for (const e in effectController) {
@@ -5096,58 +4855,58 @@ function applyBokehToShaderAndGUI() {
 function niceBlurPulse(durationMs = 5000, rampMs = 600) {
     const prev = {
         enabled: effectController.enabled,
-        fstop: effectController.fstop,
+        // fstop: effectController.fstop,
         maxblur: effectController.maxblur,
-        focalDepth: effectController.focalDepth,
-        threshold: effectController.threshold,
-        gain: effectController.gain,
-        bias: effectController.bias,
+        // focalDepth: effectController.focalDepth,
+        // threshold: effectController.threshold,
+        // gain: effectController.gain,
+        // bias: effectController.bias,
         fringe: effectController.fringe,
         focalLength: effectController.focalLength,
-        showFocus: effectController.showFocus ? 1 : 0,
-        manualdof: effectController.manualdof ? 1 : 0,
-        vignetting: effectController.vignetting ? 1 : 0,
-        depthblur: effectController.depthblur ? 1 : 0,
-        noise: effectController.noise ? 1 : 0,
-        pentagon: effectController.pentagon ? 1 : 0
+        // showFocus: effectController.showFocus ? 1 : 0,
+        // manualdof: effectController.manualdof ? 1 : 0,
+        // vignetting: effectController.vignetting ? 1 : 0,
+        // depthblur: effectController.depthblur ? 1 : 0,
+        // noise: effectController.noise ? 1 : 0,
+        // pentagon: effectController.pentagon ? 1 : 0
     };
 
     // Choose strong blur target
     const state = { ...prev };
     const target = {
-        enabled: 1,
-        fstop: 0.6,
-        maxblur: 14.0,
-        focalDepth: Math.max(5, prev.focalDepth),
+        // enabled: 1,
+        // fstop: 0.6,
+        maxblur: Math.random(5, prev.maxblur),
+        // focalDepth: Math.max(5, prev.focalDepth),
         threshold: 0.8,
-        gain: 40.0,
-        bias: 2.5,
-        fringe: 20.0,
+        // gain: 40.0,
+        // bias: 2.5,
+        fringe: 40.0,
         focalLength: prev.focalLength,
-        showFocus: 0,
-        manualdof: 0,
-        vignetting: 0,
-        depthblur: 0,
-        noise: prev.noise ? 1 : 0,
-        pentagon: prev.pentagon ? 1 : 0
+        // showFocus: 0,
+        // manualdof: 0,
+        // vignetting: 0,
+        // depthblur: 0,
+        // noise: prev.noise ? 1 : 0,
+        // pentagon: prev.pentagon ? 1 : 0
     };
 
     const applyFromState = () => {
         effectController.enabled = !!state.enabled;
-        effectController.fstop = state.fstop;
+        // effectController.fstop = state.fstop;
         effectController.maxblur = state.maxblur;
-        effectController.focalDepth = state.focalDepth;
-        effectController.threshold = state.threshold;
-        effectController.gain = state.gain;
-        effectController.bias = state.bias;
+        // effectController.focalDepth = state.focalDepth;
+        // effectController.threshold = state.threshold;
+        // effectController.gain = state.gain;
+        // effectController.bias = state.bias;
         effectController.fringe = state.fringe;
         effectController.focalLength = state.focalLength;
-        effectController.showFocus = state.showFocus > 0.5;
-        effectController.manualdof = state.manualdof > 0.5;
-        effectController.vignetting = state.vignetting > 0.5;
-        effectController.depthblur = state.depthblur > 0.5;
-        effectController.noise = state.noise > 0.5;
-        effectController.pentagon = state.pentagon > 0.5;
+        // effectController.showFocus = state.showFocus > 0.5;
+        // effectController.manualdof = state.manualdof > 0.5;
+        // effectController.vignetting = state.vignetting > 0.5;
+        // effectController.depthblur = state.depthblur > 0.5;
+        // effectController.noise = state.noise > 0.5;
+        // effectController.pentagon = state.pentagon > 0.5;
         applyBokehToShaderAndGUI();
     };
 
@@ -5394,7 +5153,7 @@ function render(time) {
 		}
 
         let uniforms = [];
-        uniforms.push({ name: 'audioLevel', value: (window.audioLevel || 0.0), type: 'float' });
+        uniforms.push({ name: 'audioLevel', value: (audioLevel || 0.0), type: 'float' });
         uniforms.push({ name: 'time', value: currTime, type: 'float' });
         uniforms.push({ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
 		if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
@@ -5557,7 +5316,7 @@ function render(time) {
 			const sdistance = smoothstep(camera.near, camera.far, distance);
 			const ldistance = linearize(1 - sdistance);
 
-			bokehPass.uniforms['focalDepth'].value = ldistance;
+			// bokehPass.uniforms['focalDepth'].value = ldistance;
 			effectController.focalDepth = ldistance;
 		}
 

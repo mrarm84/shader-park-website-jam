@@ -126,7 +126,7 @@ export default {
 				this.$store.commit('setCanvasSize', {width: window.innerWidth, height: window.innerHeight});
 			}
 		})
-		
+
 	},
 };
 </script>
@@ -326,7 +326,7 @@ a:hover {
 //     position: absolute;
 //     width: 100%;
 //     bottom: 20px;
-    
+
 // }
 
 .w-layout-grid {

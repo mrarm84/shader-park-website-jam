@@ -11,6 +11,8 @@
             <div class="nav-right" v-bind:class="{ mobile: isMobile }" >
 
                 <router-link to="/explore" class="link" v-bind:class="{ mobile: isMobile }"  active-class="active" exact>Explore</router-link>
+                <router-link to="/game" class="link" v-bind:class="{ mobile: isMobile }"  active-class="active">Game</router-link>
+                <router-link to="/newtoy" class="link" v-bind:class="{ mobile: isMobile }"  active-class="active">Toy</router-link>
                 <!-- <router-link to="/examples" class="link" active-class="active">Examples</router-link> -->
                 <a class="link"  target="_blank" href="https://docs.shaderpark.com/references-js/" v-bind:class="{ mobile: isMobile }"  active-class="active">Docs</a>
                 <a class="link"  target="_blank" href="https://discord.gg/NDQXuyRBsQ" v-bind:class="{ mobile: isMobile }"  active-class="active">Discord</a>
@@ -279,7 +281,7 @@ export default {
     color: white;
     padding: 11px 35px;
     border: 1px solid #dedede;
-    border-radius: 4px;
+    border-radius: 2px;
     background-color: #50e3c2;
     font-size: 18px;
     font-weight: 200;

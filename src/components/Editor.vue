@@ -686,7 +686,7 @@ export default {
 
 .editor-button {
     padding: 5px 15px 5px 15px;
-    border-radius: 50px;
+    border-radius: 2px;
     /* border: 1px solid lightgrey; */
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.15);
     margin-bottom: 5px;

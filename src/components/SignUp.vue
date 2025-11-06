@@ -49,7 +49,7 @@ export default {
         password: {
             required,
             minLength: minLength(6)
-        }  
+        }
     },
     methods: {
         signUp() {
@@ -98,7 +98,7 @@ export default {
     margin-bottom: 40px;
     padding-top: 11px;
     padding-bottom: 11px;
-    border-radius: 4px;
+    border-radius: 2px;
     font-size: 18px;
     font-weight: 300;
 }

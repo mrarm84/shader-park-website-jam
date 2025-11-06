@@ -1,4 +1,10 @@
-# Shader Park
+# Shader Park Webite fork
+added gamepad, audio reactiveness, and EffectComposer Passes - on joy and keyboard
+
+I plan to add getting sketches from Shader Toy - in same mechanism, editor, reloading
+
+
+You can load random sculpture by touch pad button on DS4
 
 [![Netlify Status](https://api.netlify.com/api/v1/badges/62b5ba66-28fd-4829-9394-b175ad113a6b/deploy-status)](https://app.netlify.com/sites/shaderpark/deploys)
 

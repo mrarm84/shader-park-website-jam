@@ -193,12 +193,7 @@ let vueApp;
 firebase.auth().onAuthStateChanged(function(user) {
 	if(firstInit) {
 		vueApp = new Vue({el: '#app', store: store, router: router, render: h => h(App)});
-
-        if (!router.currentRoute.path.startsWith('/game/')) {
-            init();
-        } else {
-            initGame();
-        }
+		init();
 
 		//Detect when sculpture is saved
 		vueApp.$store.subscribeAction(async (action, state) => {
@@ -457,7 +452,7 @@ function animateMorphing() {
             // For color inversion, control the intensity uniform
             morph.pass.uniforms.intensity.value = currentValue;
         } else if (morph.pass === pixelatePass) {
-            morph.pass.uniforms.uPixelSize.value = 0.1 + (0.2 - currentValue) * 0.1; // Higher pixel size range
+            morph.pass.uniforms.uPixelSize.value = 4.0 + (1.0 - currentValue) * 16.0; // Higher pixel size range
         } else if (morph.pass === asciiPass) {
             // For ASCII, we morph the font size or opacity
             morph.pass.uniforms.uFontSize.value = Math.max(1, 12 * currentValue);
@@ -529,7 +524,7 @@ const effectController = {
     jsDepthCalculation: false, // Disable auto depth calculation - use manual focalDepth instead
     shaderFocus: false,
 
-    fstop: 0.1,
+    fstop: 2.2,
     maxblur: 1.0,
 
     showFocus: false,
@@ -541,7 +536,7 @@ const effectController = {
     threshold: 0.5,
     gain: 2.0,
     bias: 0.5,
-    fringe: 30,
+    fringe: 10,
 
     focalLength: 35,
     noise: true,
@@ -555,20 +550,6 @@ window.effectController = effectController;
 
 // Make params globally accessible for dynamic tweaking
 window.rgbShiftParams = params;
-
-// Global sculpture MELTING function
-window.meltSelectedSculpture = function(duration = 4000) {
-    if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture) {
-        const sculpture = store.state.selectedSculpture.sculpture;
-        if (sculpture.startMorph) {
-            sculpture.startMorph(duration);
-            console.log(`Starting sculpture MELTING (${duration}ms)`);
-            return true;
-        }
-    }
-    console.log('No sculpture available for melting');
-    return false;
-};
 
 function enableAudio() {
     audioEnabled = true;
@@ -800,43 +781,41 @@ function setupBokehGUI() {
         // autoPlace: false
     });
 
-    if (!router.currentRoute.path.startsWith('/game/')) {
+    // Position bokeh GUI to the right of halftone GUI
+    gui.domElement.style.position = 'absolute';
+    gui.domElement.style.top = '350px';
+    gui.domElement.style.left = '1380px'; // Position to the right of halftone GUI
 
-        // Position bokeh GUI to the right of halftone GUI
-        gui.domElement.style.position = 'absolute';
-        gui.domElement.style.top = '350px';
-        gui.domElement.style.left = '1380px'; // Position to the right of halftone GUI
+    gui.add(effectController, 'enabled').onChange(matChanger);
+    gui.add(effectController, 'jsDepthCalculation').onChange(matChanger);
+    gui.add(effectController, 'shaderFocus').onChange(matChanger);
+    gui.add(effectController, 'focalDepth', 0.0, 200.0).listen().onChange(matChanger);
 
-        gui.add(effectController, 'enabled').onChange(matChanger);
-        gui.add(effectController, 'jsDepthCalculation').onChange(matChanger);
-        gui.add(effectController, 'shaderFocus').onChange(matChanger);
-        gui.add(effectController, 'focalDepth', 0.0, 200.0).listen().onChange(matChanger);
+    gui.add(effectController, 'fstop', 0.1, 22, 0.001).onChange(matChanger);
+    gui.add(effectController, 'maxblur', 0.0, 5.0, 0.025).onChange(matChanger);
 
-        gui.add(effectController, 'fstop', 0.1, 22, 0.001).onChange(matChanger);
-        gui.add(effectController, 'maxblur', 0.0, 5.0, 0.025).onChange(matChanger);
+    gui.add(effectController, 'showFocus').onChange(matChanger);
+    gui.add(effectController, 'manualdof').onChange(matChanger);
+    gui.add(effectController, 'vignetting').onChange(matChanger);
 
-        gui.add(effectController, 'showFocus').onChange(matChanger);
-        gui.add(effectController, 'manualdof').onChange(matChanger);
-        gui.add(effectController, 'vignetting').onChange(matChanger);
+    gui.add(effectController, 'depthblur').onChange(matChanger);
 
-        gui.add(effectController, 'depthblur').onChange(matChanger);
+    gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
+    gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
+    gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
+    gui.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
 
-        gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
-        gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
-        gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
-        gui.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
+    gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
 
-        gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
+    gui.add(effectController, 'noise').onChange(matChanger);
 
-        gui.add(effectController, 'noise').onChange(matChanger);
+    gui.add(effectController, 'dithering', 0, 0.001, 0.0001).onChange(matChanger);
 
-        gui.add(effectController, 'dithering', 0, 0.001, 0.0001).onChange(matChanger);
+    gui.add(effectController, 'pentagon').onChange(matChanger);
 
-        gui.add(effectController, 'pentagon').onChange(matChanger);
+    gui.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
+    gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
 
-        gui.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
-        gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
-    }
     matChanger();
 }
 
@@ -982,50 +961,6 @@ window.halftoneParams = {
     greyscale: false,
     disable: false
 };
-
-// Mesh deformation state
-let deformationMode = false;
-let isDragging = false;
-let lastMousePos = new Vector2();
-let deformationStrength = 0.5;
-let deformationRadius = 1.0;
-let deformationTarget = null; // The mesh being deformed
-
-// Debug visualization
-let debugSphere = null;
-let debugArrow = null;
-
-// Create debug visualization objects
-function createDebugObjects() {
-    // Debug sphere for intersection point
-    const sphereGeometry = new IcosahedronGeometry(0.05, 2);
-    const sphereMaterial = new MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
-    debugSphere = new Mesh(sphereGeometry, sphereMaterial);
-    debugSphere.visible = false;
-
-    // Debug line for deformation direction
-    const lineGeometry = new BufferGeometry().setFromPoints([
-        new Vector3(0, 0, 0),
-        new Vector3(1, 0, 0)
-    ]);
-    const lineMaterial = new LineDashedMaterial({
-        color: 0x00ff00,
-        linewidth: 3,
-        scale: 1,
-        dashSize: 0.1,
-        gapSize: 0.05
-    });
-    debugArrow = new Line(lineGeometry, lineMaterial);
-    debugArrow.visible = false;
-
-    if (scene) {
-        scene.add(debugSphere);
-        scene.add(debugArrow);
-    }
-
-    console.log('🔧 Debug objects created');
-}
-
 let vignettePass = null; // vignette pass
 let bloomPass = null; // bloom pass (third row)
 let saoPass = null; // SAO pass (third row)
@@ -1311,63 +1246,6 @@ function createAudioUI() {
     palBtn.addEventListener('click', () => showPalettePanel());
     document.body.appendChild(palBtn);
     window.topControls.push(palBtn);
-
-    // Focus button (switch between meshes with blur)
-    const focusBtn = document.createElement('button');
-    focusBtn.textContent = '👁️';
-    focusBtn.title = 'Focus: cycle through meshes with blur';
-    focusBtn.style.position = 'fixed';
-    focusBtn.style.top = '8px';
-    focusBtn.style.left = '364px';
-    focusBtn.style.height = '24px';
-    focusBtn.style.width = '28px';
-    focusBtn.style.padding = '0';
-    focusBtn.style.border = '1px solid #ddd';
-    focusBtn.style.borderRadius = '6px';
-    focusBtn.style.background = '#fff';
-    focusBtn.style.color = '#333';
-    focusBtn.style.cursor = 'pointer';
-    focusBtn.style.zIndex = '10010';
-    focusBtn.style.fontSize = '14px';
-    focusBtn.addEventListener('click', () => cycleMeshFocus());
-    document.body.appendChild(focusBtn);
-    window.topControls.push(focusBtn);
-
-    // Deformation button (toggle mesh deformation mode)
-    const deformBtn = document.createElement('button');
-    deformBtn.textContent = '🫰';
-    deformBtn.title = 'Deformation: click and drag to sculpt meshes';
-    deformBtn.style.position = 'fixed';
-    deformBtn.style.top = '8px';
-    deformBtn.style.left = '398px';
-    deformBtn.style.height = '24px';
-    deformBtn.style.width = '28px';
-    deformBtn.style.padding = '0';
-    deformBtn.style.border = '1px solid #ddd';
-    deformBtn.style.borderRadius = '6px';
-    deformBtn.style.background = deformationMode ? '#43a047' : '#fff';
-    deformBtn.style.color = deformationMode ? '#fff' : '#333';
-    deformBtn.style.cursor = 'pointer';
-    deformBtn.style.zIndex = '10010';
-    deformBtn.style.fontSize = '14px';
-    deformBtn.addEventListener('click', () => {
-        deformationMode = !deformationMode;
-        deformBtn.style.background = deformationMode ? '#43a047' : '#fff';
-        deformBtn.style.color = deformationMode ? '#fff' : '#333';
-        canvas.style.cursor = deformationMode ? 'grab' : 'auto';
-
-        // Hide debug objects when deformation mode is disabled
-        if (!deformationMode && debugSphere) {
-            debugSphere.visible = false;
-        }
-        if (!deformationMode && debugArrow) {
-            debugArrow.visible = false;
-        }
-
-        console.log('🫰 Deformation mode:', deformationMode ? 'ON' : 'OFF');
-    });
-    document.body.appendChild(deformBtn);
-    window.topControls.push(deformBtn);
 }
 function updateAudioIndicator(level) {
     const indicator = window.audioVolumeIndicator;
@@ -1376,44 +1254,6 @@ function updateAudioIndicator(level) {
     const height = Math.min(24, Math.max(2, level * 24)); // scale to 2–24px
     indicator.style.height = `${height}px`;
     indicator.style.background = `rgb(${Math.floor(level * 255)}, 100, 150)`; // dynamic color
-}
-
-// Cycle through mesh focus with blur effect
-function cycleMeshFocus() {
-    if (!window.scene) return;
-
-    // Get all sculpture meshes from the scene
-    const sculptureMeshes = window.scene.children.filter(child =>
-        child.type === 'Mesh' && child.name && child.name.length > 0
-    );
-
-    if (sculptureMeshes.length === 0) return;
-
-    // Initialize focus index if not set
-    if (typeof window.currentFocusIndex === 'undefined') {
-        window.currentFocusIndex = -1;
-    }
-
-    // Cycle to next mesh
-    window.currentFocusIndex = (window.currentFocusIndex + 1) % sculptureMeshes.length;
-    const focusedMesh = sculptureMeshes[window.currentFocusIndex];
-
-    // Apply blur effect when switching focus
-    triggerDelayedBlur(0, 500);
-
-    // Update camera to focus on the selected mesh
-    if (camera && focusedMesh) {
-        // Calculate a good camera position to focus on this mesh
-        const meshPosition = focusedMesh.position.clone();
-        const distance = 5;
-        const height = 2;
-
-        // Position camera to look at the mesh
-        camera.position.set(meshPosition.x, meshPosition.y + height, meshPosition.z + distance);
-        camera.lookAt(meshPosition);
-
-        console.log('Focused on mesh:', focusedMesh.name, 'at position:', meshPosition);
-    }
 }
 
 // Toggle header visibility (hide Shader Park header/nav)
@@ -1465,43 +1305,6 @@ function randomBrightColor() {
     const b = 64 + Math.floor(Math.random() * 192);
     return (r << 16) | (g << 8) | b;
 }
-
-function spinCameraAroundSelectedObject(axis = new THREE.Vector3(0, 1, 0), duration = 1000, angle = Math.PI) {
-    const curr = store.state.currSculpture;
-
-    if (curr && curr.id) {
-        const match = store.state.objectsToUpdate.find(o => o && o.mesh && o.mesh.name === curr.id);
-        if (match && match.mesh) selected = match.mesh;
-    }
-
-    if (!store.state.selectedObject && store.state.objectsToUpdate.length > 0) {
-        selected = store.state.objectsToUpdate[0].mesh;
-    }
-
-    if (!store.state.selectedObject && window.scene) {
-        const meshes = window.scene.children.filter(obj => obj.type === 'Mesh');
-        if (meshes.length > 0) selected = meshes[0];
-    }
-
-    const object = seleted;
-    if (!object || !camera) return;
-
-    const target = object.position.clone();
-    const startVec = camera.position.clone().sub(target);
-    const state = { t: 0 };
-
-    new TWEEN.Tween(state)
-        .to({ t: 1 }, duration)
-        .easing(TWEEN.Easing.Quadratic.InOut)
-        .onUpdate(() => {
-            const q = new THREE.Quaternion().setFromAxisAngle(axis.normalize(), angle * state.t);
-            const rotated = startVec.clone().applyQuaternion(q);
-            camera.position.copy(target.clone().add(rotated));
-            camera.lookAt(target);
-        })
-        .start();
-}
-
 
 // Smooth 180° camera spin around controls.target
 function spinCamera180(clockwise = true, duration = 450, spin = 1) {
@@ -1747,7 +1550,6 @@ function handleKeyDown(e) {
             }
             break;
         case 'o': // Hue/Sat wobble hold
-            spinCamera180(false, 1250, 2.5);
             window.keyboard.holdO = true;
             if (hueSatPass && hueSatPass.uniforms) {
                 hueSatPass.enabled = true;
@@ -1900,14 +1702,19 @@ function handleKeyDown(e) {
 
             break;
         }
+        case '9': {
+            // Randomize all parameters with longer fade (rndP button equivalent)
+            try {
+                smoothRandomizeAllParams(4000); // 4 second fade instead of 2
+                console.log('🎲 Randomizing all parameters with 4s fade (key 9)');
+            } catch(e) {
+                console.error('Randomize failed:', e);
+            }
+            break;
+        }
         case '0': {
             // Cycle through sp-examples files
             cycleSPExamples();
-            break;
-        }
-        case '6': {
-            // Cycle through sp-examples files
-            spinCameraAroundSelectedObject();
             break;
         }
         // Third row: content
@@ -1918,7 +1725,7 @@ function handleKeyDown(e) {
         case 'x':
             // Really blurry morphing for pixelation
             if (pixelatePass) {
-                const targetValue = pixelatePass.enabled ? 0.0 : 0.1;
+                const targetValue = pixelatePass.enabled ? 0.0 : 1.0;
                 startBlurryMorph('pixelation', pixelatePass, targetValue);
                 console.log('Blurry morphing pixelation:', targetValue > 0 ? 'ON' : 'OFF');
             }
@@ -2020,7 +1827,7 @@ function handleKeyDown(e) {
                 console.log('Blurry morphing chromatic aberration:', targetValue > 0 ? 'ON' : 'OFF');
             }
             break;
-        case '7':
+        case 'n':
             // Really blurry morphing for ASCII effect
             if (asciiPass) {
                 const targetValue = asciiPass.enabled ? 0.0 : 1.0;
@@ -2972,512 +2779,6 @@ renderer.setClearColor(0xffffff, 1);
 	composer.addPass(cubeTexturePass);
 	composer.addPass(filmPass);
 	composer.addPass(halftonePass);
-    composer.addPass(dotColorPass);
-	composer.addPass(afterimagePass);
-	composer.addPass(bokehPass);
-
-	// Create ASCII pass
-	const asciiShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uFontSize': { value: 8.0 },
-			'uCharacters': { value: ' .:-=+*#%@' },
-			'uHueRandomness': { value: 0.0 },
-			'uSamplingMode': { value: 0 } // 0: simple, 1: accurate
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform vec2 uResolution;
-			uniform float uFontSize;
-			uniform float uHueRandomness;
-			uniform int uSamplingMode;
-			varying vec2 vUv;
-
-			// Function to convert RGB to HSV
-			vec3 rgb2hsv(vec3 c) {
-				vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-				vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-				vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-				float d = q.x - min(q.w, q.y);
-				float e = 1.0e-10;
-				return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-			}
-
-			// Function to convert HSV to RGB
-			vec3 hsv2rgb(vec3 c) {
-				vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-				vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-				return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-			}
-
-			// Pseudo-random function
-			float random(vec2 st) {
-				return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
-			}
-
-			void main() {
-				vec2 uv = vUv;
-				vec2 pixelCoord = uv * uResolution;
-				vec2 charCoord = floor(pixelCoord / uFontSize) * uFontSize;
-				vec2 localCoord = mod(pixelCoord, uFontSize) / uFontSize;
-
-				vec4 texColor;
-
-				if (uSamplingMode == 0) {
-					// Simple sampling - sample at character center
-					texColor = texture2D(tDiffuse, charCoord / uResolution);
-				} else {
-					// Accurate sampling - sample multiple points for better quality
-					vec2 sampleUV = charCoord / uResolution;
-					vec2 texelSize = 1.0 / uResolution;
-
-					// Sample 4 corners for better accuracy
-					vec4 c1 = texture2D(tDiffuse, sampleUV);
-					vec4 c2 = texture2D(tDiffuse, sampleUV + vec2(texelSize.x, 0.0));
-					vec4 c3 = texture2D(tDiffuse, sampleUV + vec2(0.0, texelSize.y));
-					vec4 c4 = texture2D(tDiffuse, sampleUV + texelSize);
-
-					texColor = (c1 + c2 + c3 + c4) * 0.25;
-				}
-
-				float brightness = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
-
-				// Create ASCII pattern based on brightness and character position
-				float ascii = 0.0;
-
-				// Map brightness to character index
-				int charIndex = int(brightness * float(uCharacters.length()));
-				charIndex = clamp(charIndex, 0, uCharacters.length() - 1);
-
-				// Simple character rendering based on character index
-				// For now, we'll use different patterns based on character brightness level
-				float charBrightness = float(charIndex) / float(uCharacters.length());
-
-				// Create different patterns based on character index
-				if (charIndex == 0) {
-					// '.' - single dot
-					ascii = step(localCoord.x, 0.2) * step(localCoord.y, 0.2) * step(0.8, localCoord.x) * step(0.8, localCoord.y);
-				} else if (charIndex <= 2) {
-					// ':' - two dots
-					float dot1 = step(localCoord.x, 0.2) * step(localCoord.y, 0.2) * step(0.8, localCoord.x) * step(0.3, localCoord.y);
-					float dot2 = step(localCoord.x, 0.2) * step(localCoord.y, 0.7) * step(0.8, localCoord.x) * step(0.3, localCoord.y);
-					ascii = dot1 + dot2;
-				} else if (charIndex <= 5) {
-					// '-' - horizontal line
-					ascii = step(localCoord.y, 0.6) * step(0.4, localCoord.y);
-				} else if (charIndex <= 8) {
-					// '+' - cross
-					float hLine = step(localCoord.y, 0.6) * step(0.4, localCoord.y);
-					float vLine = step(localCoord.x, 0.6) * step(0.4, localCoord.x);
-					ascii = hLine + vLine;
-				} else {
-					// Full block for brighter characters
-					ascii = step(localCoord.x, 0.9) * step(localCoord.y, 0.9);
-				}
-
-				ascii *= charBrightness;
-
-				vec3 finalColor = vec3(ascii);
-
-				// Apply hue randomization if enabled
-				if (uHueRandomness > 0.0) {
-					vec3 hsv = rgb2hsv(finalColor);
-					float hueShift = (random(charCoord) - 0.5) * uHueRandomness;
-					hsv.x = fract(hsv.x + hueShift);
-					finalColor = hsv2rgb(hsv);
-				}
-
-				gl_FragColor = vec4(finalColor, texColor.a);
-			}
-		`
-	};
-
-	asciiPass = new ShaderPass(asciiShader);
-	asciiPass.enabled = false; // Start disabled
-	composer.addPass(asciiPass);
-
-	// Create blur pass for really blurry morphing
-	blurPass = new ShaderPass(blurShader);
-	blurPass.enabled = false; // Start disabled
-	composer.addPass(blurPass);
-
-	// Create vignette pass for V key
-	const vignetteShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'offset': { value: 1.0 },
-			'darkness': { value: 1.5 }
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform float offset;
-			uniform float darkness;
-			varying vec2 vUv;
-
-			void main() {
-				vec4 texColor = texture2D(tDiffuse, vUv);
-				vec2 uv = (vUv - vec2(0.5)) * vec2(offset);
-				float vignette = 1.0 - dot(uv, uv) * darkness;
-				vignette = clamp(vignette, 0.0, 1.0);
-				gl_FragColor = texColor * vignette;
-			}
-		`
-	};
-
-	vignettePass = new ShaderPass(vignetteShader);
-	vignettePass.enabled = false;
-	composer.addPass(vignettePass);
-
-	// Create color inversion pass for C key
-	const invertShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'intensity': { value: 0.0 }
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform float intensity;
-			varying vec2 vUv;
-
-			void main() {
-				vec4 texColor = texture2D(tDiffuse, vUv);
-				vec4 inverted = vec4(1.0 - texColor.rgb, texColor.a);
-				gl_FragColor = mix(texColor, inverted, intensity);
-			}
-		`
-	};
-
-	invertPass = new ShaderPass(invertShader);
-	invertPass.enabled = false;
-	composer.addPass(invertPass);
-
-	// Create pixelation pass for X key
-	const pixelateShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uPixelSize': { value: 0.1 }
-		},
-		vertexShader: `
-			varying vec2 vUv;
-			void main() {
-				vUv = uv;
-				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-			}
-		`,
-		fragmentShader: `
-			uniform sampler2D tDiffuse;
-			uniform vec2 uResolution;
-			uniform float uPixelSize;
-			varying vec2 vUv;
-
-			void main() {
-				vec2 pixelCoord = floor(vUv * uResolution / uPixelSize) * uPixelSize / uResolution;
-				vec4 texColor = texture2D(tDiffuse, pixelCoord);
-				gl_FragColor = texColor;
-			}
-		`
-	};
-
-	pixelatePass = new ShaderPass(pixelateShader);
-	pixelatePass.enabled = false;
-	composer.addPass(pixelatePass);
-
-	// Setup GUI controls for bokeh effect
-	setupBokehGUI();
-
-console.log('router.currentRoute.path', router.currentRoute.path)
-
-    if (!router.currentRoute.path.startsWith('/game/')) {
-        // Not in a game route
-        setupHalftoneGUI();
-        setupAsciiGUI();
-    }
-	// Setup GUI controls for halftone blending
-
-	// Setup GUI controls for ASCII effect
-
-
-	// Apply initial background according to bgMode
-	try { applyBackground(window.bgMode || 1); } catch(e){}
-
-	canvas = document.querySelector('canvas');
-	canvas.setAttribute('tabindex', '0');
-	canvas.setAttribute('powerPreference', 'high-performance');
-	canvas.addEventListener('click', (event) => {
-		event.target.focus();
-	});
-
-	// Add mouse interaction for bokeh focus
-	canvas.addEventListener('pointermove', onPointerMove);
-
-	// canvas.addEventListener('mousemove', onMouseMove, false);
-    console.log("Gamepad:", navigator.getGamepads()[0]);
-
-	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
-	controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true; // Restore damping for smooth mouse controls
-	controls.enablePan = true; // Enable right-click panning to move objects/camera
-	controls.dampingFactor = 0.25;
-	controls.zoomSpeed = 0.5;
-	controls.rotateSpeed = 0.5;
-	controls.keys = {
-		LEFT: 65,
-		UP: 87,
-		RIGHT: 68,
-		BOTTOM: 83
-	};
-
-	mapControls = new MapControls(camera, renderer.domElement);
-	mapControls.enableDamping = true; // Restore damping for smooth mouse controls
-	mapControls.dampingFactor = 0.25;
-	mapControls.screenSpacePanning = false;
-	mapControls.maxPolarAngle = Math.PI / 2;
-
-	window.mapControls = mapControls;
-	window.controls = controls;
-	camera.position.set(6, 2.5, 4);
-	// controls.target.set(6, 0, 0);
-
-    scene.add(hemisphereLight);
-
-    // Add colorful accent lights (increased intensity for visibility)
-    redLight = new THREE.PointLight(0xff0040, 5, 15);
-    redLight.position.set(-3, 2, 3);
-
-    blueLight = new THREE.PointLight(0x0040ff, 5, 15);
-    blueLight.position.set(3, 2, -3);
-
-    greenLight = new THREE.PointLight(0x40ff00, 5, 15);
-    greenLight.position.set(0, 3, 3);
-
-    purpleLight = new THREE.PointLight(0x8000ff, 4, 12);
-    purpleLight.position.set(-2, 1, -2);
-
-    orangeLight = new THREE.PointLight(0xff8000, 4, 12);
-    orangeLight.position.set(2, 1, 2);
-
-    console.log('Colorful lights created:', { redLight, blueLight, greenLight, purpleLight, orangeLight });
-
-    // Add lights to scene
-    scene.add(redLight);
-    scene.add(blueLight);
-    scene.add(greenLight);
-    scene.add(purpleLight);
-    scene.add(orangeLight);
-
-
-    const loader = new FontLoader();
-    loader.load('/fonts/helvetiker_regular.typeface.json', function (font) {
-        const textGeo = new TextGeometry('your place\n your time', {
-            font: font,
-            size: 115,
-            height: 222,
-            curveSegments: 12,
-            bevelEnabled: true,
-            bevelThickness: 0.5,
-            bevelSize: 0.3,
-            bevelSegments: 3
-        });
-
-        const textMaterial = new MeshStandardMaterial({ color: 0x5555ff });
-        const textMesh = new Mesh(textGeo, textMaterial);
-        textMesh.position.set(0, 0, 0);
-        scene.add(textMesh);
-    });
-
-    render();
-
-	// Audio UI (small button top-left)
-	createAudioUI();
-	setupKeyboardControls();
-
-    // Helper globals
-    window.headerHidden = true;
-}
-
-
-function initGame() {
-    // handleGamepadInput()
-	canvasContainer = document.querySelector('.canvas-container');
-	renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', alpha: true});
-	renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
-	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
-    Object.assign(store.state.canvasSize, prevCanvasSize);
-	renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearAlpha(1);
-renderer.setClearColor(0xffffff, 1);
-	canvasContainer.appendChild(renderer.domElement);
-
-	// Auto-focus canvas by simulating a click shortly after load
-	try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
-
-	// Setup post-processing composer
-	composer = new EffectComposer(renderer);
-	renderPass = new RenderPass(scene, camera);
-	// Attach params to renderPass for blending/blendingMode control via keyboard (key '4')
-	renderPass.params = renderPass.params || {};
-	if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
-	if (typeof renderPass.params.blendingMode !== 'number') renderPass.params.blendingMode = 1;
-	composer.addPass(renderPass);
-
-	// Setup bokeh depth shader material
-	const depthShader = BokehDepthShader;
-    // depthShader.fragmentShader = /* glsl */`
-    //
-	// 	uniform float mNear;
-	// 	uniform float mFar;
-    //
-	// 	varying float vViewZDepth;
-    //
-	// 	void main() {
-    //
-	// 		float color = 1.0 - smoothstep( mNear, mFar, vViewZDepth );
-	// 		gl_FragColor = vec4( vec3( color ), texture2D(tDiffuse, vUv).a );
-    //
-	// 	}`;
-	materialDepth = new ShaderMaterial({
-		uniforms: depthShader.uniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader
-	});
-	materialDepth.uniforms['mNear'].value = camera.near;
-	materialDepth.uniforms['mFar'].value = camera.far;
-
-	// Setup bokeh pass
-	const bokehShader = BokehShader;
-	const bokehUniforms = UniformsUtils.clone(bokehShader.uniforms);
-	bokehUniforms['textureWidth'].value = window.innerWidth;
-	bokehUniforms['textureHeight'].value = window.innerHeight;
-
-	bokehPass = new ShaderPass({
-		uniforms: bokehUniforms,
-		vertexShader: bokehShader.vertexShader,
-		fragmentShader: bokehShader.fragmentShader,
-		defines: {
-			RINGS: shaderSettings.rings,
-			SAMPLES: shaderSettings.samples
-		}
-	});
-
-
-	// Add RGB Shift effect
-	rgbShiftPass = new ShaderPass(RGBShiftShader);
-	rgbShiftPass.uniforms.amount.value = params.rsy; // tweak strength
-	rgbShiftPass.uniforms.angle.value = params.rsx; // tweak strength
-	rgbShiftPass.enabled = true;
-	// bokehPass.renderToScreen = true; // Removed to allow proper composer chain with brightness/contrast
-
-	// Film pass (grain/scanlines), initially disabled
-	filmPass = new FilmPass(0.0, 0.0, 2048, false);
-	filmPass.enabled = false;
-
-	// Halftone pass (dots), initially disabled
-	halftonePass = new HalftonePass(window.innerWidth, window.innerHeight, {
-		radius: 12.0,
-		scatter: 0.0,
-		shape: 1,
-		greyscale: false,
-
-	});
-    halftonePass.material = new ShaderMaterial( {
-        blending: 0.5,
-        // blendMode: MultiplyBlending
-    } );
-    halftonePass.uniforms['greyscale'].value = false;
-
-	halftonePass.enabled = false;
-
-	// Dot screen pass, initially disabled
-	dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 2.0);
-	dotPass.enabled = false;
-
-	// Color-preserving Dot pass (disabled by default)
-	dotColorPass = new ShaderPass(DotColorShader);
-	dotColorPass.enabled = false;
-
-	// Afterimage (motion blur) pass, initially disabled; default damp 0.94
-	afterimagePass = new AfterimagePass(0.94);
-	afterimagePass.enabled = false;
-
-	// Initialize bokeh render targets
-	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
-	rtTextureColor = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
-
-	// Set bokeh pass uniforms
-	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
-	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
-
-	composer.addPass(rgbShiftPass);
-	// Hue/Saturation pass for palette toggles
-	hueSatPass = new ShaderPass(HueSaturationShader);
-	hueSatPass.enabled = false;
-	composer.addPass(hueSatPass);
-	// Brightness/Contrast pass for final grading
-	brightnessPass = new ShaderPass(BrightnessContrastShader);
-	brightnessPass.enabled = false;
-	if (brightnessPass.uniforms) {
-		brightnessPass.uniforms['brightness'].value = 0.0;
-		brightnessPass.uniforms['contrast'].value = 0.0;
-	}
-	// composer.addPass(brightnessPass);
-	// Mirror pass (screen-space flips)
-	mirrorPass = new ShaderPass(MirrorAxisShader);
-	mirrorPass.enabled = false;
-	composer.addPass(mirrorPass);
-	// Vignette pass (disabled by default)
-	vignettePass = new ShaderPass(VignetteShader);
-	vignettePass.enabled = false;
-	if (vignettePass.uniforms) {
-		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
-		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
-	}
-	composer.addPass(vignettePass);
-
-	// Third-row exclusive passes
-	// Bloom
-	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
-	bloomPass.enabled = false;
-	composer.addPass(bloomPass);
-	// SAO (ambient occlusion)
-	saoPass = new SAOPass(scene, camera, false, true);
-	saoPass.enabled = false;
-	if (saoPass.params) {
-		saoPass.params.saoBias = 0.5;
-		saoPass.params.saoIntensity = 0.015;
-		saoPass.params.saoScale = 1.0;
-		saoPass.params.saoKernelRadius = 16;
-		saoPass.params.saoMinResolution = 0;
-	}
-	composer.addPass(saoPass);
-	// CubeTexture pass (only effective if a cube background exists)
-	cubeTexturePass = new CubeTexturePass(camera, scene);
-	cubeTexturePass.enabled = false;
-	composer.addPass(cubeTexturePass);
-	composer.addPass(filmPass);
-	composer.addPass(halftonePass);
 	composer.addPass(dotColorPass);
 	composer.addPass(afterimagePass);
 	composer.addPass(bokehPass);
@@ -3684,7 +2985,7 @@ renderer.setClearColor(0xffffff, 1);
 		uniforms: {
 			'tDiffuse': { value: null },
 			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uPixelSize': { value: 0.1 }
+			'uPixelSize': { value: 4.0 }
 		},
 		vertexShader: `
 			varying vec2 vUv;
@@ -3709,21 +3010,16 @@ renderer.setClearColor(0xffffff, 1);
 
 	pixelatePass = new ShaderPass(pixelateShader);
 	pixelatePass.enabled = false;
-	// composer.addPass(pixelatePass);
+	composer.addPass(pixelatePass);
 
 	// Setup GUI controls for bokeh effect
 	setupBokehGUI();
 
-console.log('router.currentRoute.path', router.currentRoute.path)
-
-    if (!router.currentRoute.path.startsWith('/game/')) {
-        // Not in a game route
-        setupHalftoneGUI();
-        setupAsciiGUI();
-    }
 	// Setup GUI controls for halftone blending
+	setupHalftoneGUI();
 
 	// Setup GUI controls for ASCII effect
+	setupAsciiGUI();
 
 
 	// Apply initial background according to bgMode
@@ -4502,7 +3798,7 @@ function handleGamepadTriggers(gamepad) {
     // Right Bumper (Toggle Bokeh effect and smooth-randomize parameters)
     if (window.gamepadState.rightBumper && !window.gamepadButtonRightBumperPressed) {
         window.gamepadButtonRightBumperPressed = true;
-        // effectController.enabled = !effectController.enabled;
+        effectController.enabled = !effectController.enabled;
         if (effectController.enabled) {
             smoothRandomizeBokeh(1000);
             console.log('🎮 Bokeh effect ENABLED with randomized parameters');
@@ -4530,10 +3826,6 @@ function handleGamepadTriggers(gamepad) {
         console.log ('L2', l2
         )
         if (l2 > 0.05) {
-
-            niceBlurPulse(2300, 650);
-            spinCamera180(false, 5250, 0.1);
-            
             // Film grain
             if (filmPass && filmPass.uniforms) {
                 filmPass.enabled = true;
@@ -4590,8 +3882,6 @@ console.log ('L2', l2)
                 spinCamera180(false, 400, 1);
             }
         } else {
-            window.rotateXEnabled = false;
-
             if (filmPass) filmPass.enabled = false;
             if (halftonePass) halftonePass.enabled = false;
             window.spinL2Triggered = false;
@@ -4734,6 +4024,13 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             enabled: rBool(0.5)
         } : null;
 
+        // Generate random background color (sometimes)
+        const targetBackground = rBool(0.8) ? {
+            r: rIn(0.0, 1.0),
+            g: rIn(0.0, 1.0),
+            b: rIn(0.0, 1.0)
+        } : null;
+
         // Create current state snapshot
         const currentPalette = {
             hue: window.paletteState.hue,
@@ -4778,6 +4075,17 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             saoScale: saoPass.params.saoScale,
             saoKernelRadius: saoPass.params.saoKernelRadius
         } : null;
+
+        // Get current background color
+        const currentBackgroundColor = new THREE.Color();
+        if (renderer) {
+            renderer.getClearColor(currentBackgroundColor);
+        }
+        const currentBackground = {
+            r: currentBackgroundColor.r,
+            g: currentBackgroundColor.g,
+            b: currentBackgroundColor.b
+        };
 
         // Start tweening
         const startTime = Date.now();
@@ -4901,6 +4209,25 @@ function smoothRandomizeAllParams(durationMs = 2000) {
                 .start();
         }
 
+        // Background color tweening
+        if (targetBackground) {
+            new TWEEN.Tween(currentBackground)
+                .to(targetBackground, durationMs)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onUpdate(function() {
+                    if (renderer) {
+                        const color = new THREE.Color(this.r, this.g, this.b);
+                        renderer.setClearColor(color, 1);
+
+                        // Also set the scene background for consistency
+                        if (scene) {
+                            scene.background = color.clone();
+                        }
+                    }
+                })
+                .start();
+        }
+
         // Handle boolean toggles and bokeh
         setTimeout(() => {
             // Apply boolean toggles
@@ -4916,10 +4243,8 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             const pm = document.querySelector('#pal-hsv');
             if (pm) pm.checked = !!targetPalette.hsvMode;
 
-            // Random background
-            if (Math.random() < 0.6) {
-                applyBackground(2);
-            }
+            // Background color is now smoothly tweened above
+            // (was: random background if Math.random() < 0.6)
 
             // Bokeh randomization (only if currently enabled)
             try {
@@ -5394,7 +4719,7 @@ function render(time) {
 		}
 
         let uniforms = [];
-        uniforms.push({ name: 'audioLevel', value: (window.audioLevel || 0.0), type: 'float' });
+        uniforms.push({ name: 'audioLevel', value: (audioLevel || 0.0), type: 'float' });
         uniforms.push({ name: 'time', value: currTime, type: 'float' });
         uniforms.push({ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
 		if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
@@ -5883,3 +5208,282 @@ function onCanvasResize() {
 	}
 }
 window.onCanvasResize = onCanvasResize;
+
+// ===== GAME SYSTEM INITIALIZATION =====
+let gamePlayer = null;
+let gameTerrain = null;
+let gameKeys = {
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    jump: false
+};
+let gamePlayerVelocity = new Vector3();
+let gamePlayerSpeed = 0.1;
+let gameJumpForce = 0.3;
+let gameGravity = -0.01;
+let gameIsGrounded = true;
+
+// Initialize game system
+function initGameSystem() {
+    console.log('🎮 Game system initialized');
+
+    // Set up game event listeners
+    window.addEventListener('keydown', onGameKeyDown);
+    window.addEventListener('keyup', onGameKeyUp);
+
+    // Expose game functions globally
+    window.createGamePlayer = createGamePlayer;
+    window.createGameTerrain = createGameTerrain;
+    window.updateGamePlayer = updateGamePlayer;
+    window.removeGameObjects = removeGameObjects;
+    window.resetGamePlayer = resetGamePlayer;
+
+    console.log('🎮 Game functions exposed globally');
+}
+
+// Game keyboard handlers
+function onGameKeyDown(event) {
+    if (!window.isGameMode) return;
+
+    switch (event.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+            gameKeys.forward = true;
+            break;
+        case 'KeyS':
+        case 'ArrowDown':
+            gameKeys.backward = true;
+            break;
+        case 'KeyA':
+        case 'ArrowLeft':
+            gameKeys.left = true;
+            break;
+        case 'KeyD':
+        case 'ArrowRight':
+            gameKeys.right = true;
+            break;
+        case 'Space':
+            event.preventDefault();
+            gameKeys.jump = true;
+            break;
+    }
+}
+
+function onGameKeyUp(event) {
+    if (!window.isGameMode) return;
+
+    switch (event.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+            gameKeys.forward = false;
+            break;
+        case 'KeyS':
+        case 'ArrowDown':
+            gameKeys.backward = false;
+            break;
+        case 'KeyA':
+        case 'ArrowLeft':
+            gameKeys.left = false;
+            break;
+        case 'KeyD':
+        case 'ArrowRight':
+            gameKeys.right = false;
+            break;
+        case 'Space':
+            gameKeys.jump = false;
+            break;
+    }
+}
+
+// Create game player character
+function createGamePlayer() {
+    if (gamePlayer) {
+        console.log('🎮 Player already exists');
+        return gamePlayer;
+    }
+
+    console.log('🎮 Creating game player...');
+
+    // Create player as a group of meshes
+    gamePlayer = new Group();
+    gamePlayer.name = 'gamePlayer';
+
+    // Create body (capsule-like shape)
+    const bodyGeometry = new CapsuleGeometry(0.5, 1.5, 4, 8);
+    const bodyMaterial = new MeshLambertMaterial({ color: 0xff6b6b });
+    const body = new Mesh(bodyGeometry, bodyMaterial);
+    body.position.y = 1;
+    gamePlayer.add(body);
+
+    // Create head
+    const headGeometry = new SphereGeometry(0.4, 8, 6);
+    const headMaterial = new MeshLambertMaterial({ color: 0xffdbac });
+    const head = new Mesh(headGeometry, headMaterial);
+    head.position.y = 2.2;
+    gamePlayer.add(head);
+
+    // Position player above terrain
+    gamePlayer.position.set(0, 3, 0);
+
+    scene.add(gamePlayer);
+    console.log('🎮 Player created and added to scene');
+    return gamePlayer;
+}
+
+// Create procedural terrain
+function createGameTerrain(terrainSize = 100, terrainHeight = 2) {
+    if (gameTerrain) {
+        console.log('🎮 Terrain already exists');
+        return gameTerrain;
+    }
+
+    console.log('🎮 Creating game terrain...');
+
+    // Create a large plane for terrain
+    const terrainGeometry = new PlaneGeometry(terrainSize, terrainSize, 64, 64);
+    const terrainMaterial = new MeshLambertMaterial({
+        color: 0x4a7c59,
+        transparent: false
+    });
+
+    gameTerrain = new Mesh(terrainGeometry, terrainMaterial);
+    gameTerrain.rotation.x = -Math.PI / 2; // Rotate to horizontal
+    gameTerrain.position.y = 0;
+    gameTerrain.name = 'gameTerrain';
+
+    // Add height variation
+    generateTerrainHeight(terrainGeometry, terrainHeight);
+
+    scene.add(gameTerrain);
+    console.log('🎮 Terrain created and added to scene');
+    return gameTerrain;
+}
+
+// Generate terrain height variation
+function generateTerrainHeight(geometry, maxHeight) {
+    const vertices = geometry.attributes.position.array;
+
+    for (let i = 0; i < vertices.length; i += 3) {
+        const x = vertices[i];
+        const z = vertices[i + 2];
+
+        // Create hills and valleys using sine waves
+        const height = Math.sin(x * 0.1) * Math.cos(z * 0.1) * maxHeight +
+                      Math.sin(x * 0.05 + z * 0.03) * maxHeight * 0.5;
+
+        vertices[i + 1] = height; // Y coordinate
+    }
+
+    geometry.attributes.position.needsUpdate = true;
+    geometry.computeVertexNormals();
+}
+
+// Update player physics and movement
+function updateGamePlayer() {
+    if (!gamePlayer || !window.isGameMode) return;
+
+    // Handle movement
+    const moveVector = new Vector3();
+
+    if (gameKeys.forward) moveVector.z -= 1;
+    if (gameKeys.backward) moveVector.z += 1;
+    if (gameKeys.left) moveVector.x -= 1;
+    if (gameKeys.right) moveVector.x += 1;
+
+    // Normalize and apply speed
+    if (moveVector.length() > 0) {
+        moveVector.normalize();
+        moveVector.multiplyScalar(gamePlayerSpeed);
+
+        // Apply camera rotation to movement
+        if (camera) {
+            const cameraDirection = new Vector3();
+            camera.getWorldDirection(cameraDirection);
+            cameraDirection.y = 0; // Keep movement horizontal
+            cameraDirection.normalize();
+
+            const right = new Vector3().crossVectors(cameraDirection, camera.up).normalize();
+
+            const finalMove = new Vector3()
+                .addScaledVector(cameraDirection, -moveVector.z)
+                .addScaledVector(right, moveVector.x);
+
+            gamePlayer.position.add(finalMove);
+        }
+    }
+
+    // Handle jumping
+    if (gameKeys.jump && gameIsGrounded) {
+        gamePlayerVelocity.y = gameJumpForce;
+        gameIsGrounded = false;
+    }
+
+    // Apply gravity
+    gamePlayerVelocity.y += gameGravity;
+    gamePlayer.position.add(gamePlayerVelocity);
+
+    // Ground collision
+    const groundHeight = getTerrainHeightAt(gamePlayer.position.x, gamePlayer.position.z);
+    if (gamePlayer.position.y <= groundHeight + 2) {
+        gamePlayer.position.y = groundHeight + 2;
+        gamePlayerVelocity.y = 0;
+        gameIsGrounded = true;
+    }
+}
+
+// Get terrain height at position
+function getTerrainHeightAt(x, z) {
+    // Match the terrain generation algorithm
+    return Math.sin(x * 0.1) * Math.cos(z * 0.1) * 2 +
+           Math.sin(x * 0.05 + z * 0.03) * 2 * 0.5;
+}
+
+// Reset player position
+function resetGamePlayer() {
+    if (gamePlayer) {
+        gamePlayer.position.set(0, 3, 0);
+        gamePlayerVelocity.set(0, 0, 0);
+        gameIsGrounded = false;
+        console.log('🎮 Player reset to starting position');
+    }
+}
+
+// Remove game objects
+function removeGameObjects() {
+    if (gamePlayer && scene) {
+        scene.remove(gamePlayer);
+        gamePlayer = null;
+        console.log('🎮 Player removed');
+    }
+
+    if (gameTerrain && scene) {
+        scene.remove(gameTerrain);
+        gameTerrain = null;
+        console.log('🎮 Terrain removed');
+    }
+}
+
+// Start game mode
+function startGameMode() {
+    window.isGameMode = true;
+    console.log('🎮 Game mode activated');
+}
+
+// Stop game mode
+function stopGameMode() {
+    window.isGameMode = false;
+    console.log('🎮 Game mode deactivated');
+}
+
+// Initialize game system when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initGameSystem);
+} else {
+    initGameSystem();
+}
+
+// Expose game mode functions globally
+window.startGameMode = startGameMode;
+window.stopGameMode = stopGameMode;
