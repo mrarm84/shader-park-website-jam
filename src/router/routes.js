@@ -1,6 +1,6 @@
 import New from '../components/New.vue';
-import NewToy from '../components/NewToy.vue';
-import Game from '../components/Game.vue';
+// import NewToy from '../components/NewToy.vue';
+// import Game from '../components/Game.vue';
 
 
 // This is where you add all your site routes
@@ -66,52 +66,52 @@ export const routes = [
       selectedSculpture: true
     }
   },
-  {
-    path: '/newtoy/:type',
-    name: 'newtoy',
-    component: NewToy,
-    meta: {
-      title: 'New Sculpture',
-      selectedSculpture: true
-    }
-  },
-  {
-    path: '/newtoy',
-    name: 'newtoy',
-    component: NewToy,
-    props: (route) => ({
-      hideEditor: false,
-      hidePedestal: true,
-      clickEnabled: false
-    }),
-    meta: {
-      title: 'New toy',
-      selectedSculpture: true
-    }
-  },
-  {
-    path: '/game/:type',
-    name: 'game',
-    component: Game,
-    meta: {
-      title: 'New Game',
-      selectedSculpture: true
-    }
-  },
-  {
-    path: '/game',
-    name: 'game',
-    component: Game,
-    props: (route) => ({
-      hideEditor: false,
-      hidePedestal: true,
-      clickEnabled: false
-    }),
-    meta: {
-      title: 'New Game',
-      selectedSculpture: true
-    }
-  },
+  // {
+  //   path: '/newtoy/:type',
+  //   name: 'newtoy',
+  //   component: NewToy,
+  //   meta: {
+  //     title: 'New Sculpture',
+  //     selectedSculpture: true
+  //   }
+  // },
+  // {
+  //   path: '/newtoy',
+  //   name: 'newtoy',
+  //   component: NewToy,
+  //   props: (route) => ({
+  //     hideEditor: false,
+  //     hidePedestal: true,
+  //     clickEnabled: false
+  //   }),
+  //   meta: {
+  //     title: 'New toy',
+  //     selectedSculpture: true
+  //   }
+  // },
+  // {
+  //   path: '/game/:type',
+  //   name: 'game',
+  //   component: Game,
+  //   meta: {
+  //     title: 'New Game',
+  //     selectedSculpture: true
+  //   }
+  // },
+  // {
+  //   path: '/game',
+  //   name: 'game',
+  //   component: Game,
+  //   props: (route) => ({
+  //     hideEditor: false,
+  //     hidePedestal: true,
+  //     clickEnabled: false
+  //   }),
+  //   meta: {
+  //     title: 'New Game',
+  //     selectedSculpture: true
+  //   }
+  // },
   {
     path: '/sign-in',
     name: 'signIn',
