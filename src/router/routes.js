@@ -66,6 +66,20 @@ export const routes = [
     }
   },
   {
+    path: '/newgame',
+    name: 'newgame',
+    component: Game,
+    props: (route) => ({
+      hideEditor: false,
+      hidePedestal: true,
+      clickEnabled: false
+    }),
+    meta: {
+      title: 'New Game',
+      selectedSculpture: true
+    }
+  },
+  {
     path: '/sign-in',
     name: 'signIn',
     component: () => import(/* webpackChunkName: "signin" */ '../components/SignIn.vue'),
@@ -121,7 +135,7 @@ export const routes = [
       clickEnabled: route.query.clickenabled
     }),
     meta: {
-      title: 'game',
+      title: 'Game level',
       selectedSculpture: true
     }
   },

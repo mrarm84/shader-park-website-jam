@@ -85,7 +85,7 @@ export default {
           }
         }
         this.$store.commit('sculpturesLoaded', true);
-        window.onCanvasResize();
+        // window.onCanvasResize();
       });
     }
   },

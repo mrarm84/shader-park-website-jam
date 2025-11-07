@@ -58,6 +58,8 @@ import {dbConfig} from './dbConfig.js';
 import {routes} from './router/routes';
 import {store} from './store/store';
 import {parseNumber} from "vue-js-modal/src/parser";
+import { AnaglyphEffect } from 'three/addons/effects/AnaglyphEffect.js';
+
 window.$store = store;
 
 
@@ -93,6 +95,43 @@ let clicking = false;
 // 	// new & array data
 // 	//console.logs.push(Array.from(arguments));
 // }
+
+
+
+
+
+// PLAYER
+
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+
+let floor;
+let group, followGroup, model, skeleton, mixer, clock;
+
+let actions;
+
+const settings = {
+    show_skeleton: false,
+    fixe_transition: true,
+};
+
+const PI = Math.PI;
+const PI90 = Math.PI / 2;
+
+const playerControls = {
+
+    key: [ 0, 0 ],
+    ease: new THREE.Vector3(),
+    position: new THREE.Vector3(),
+    up: new THREE.Vector3( 0, 1, 0 ),
+    rotate: new THREE.Quaternion(),
+    current: 'Idle',
+    fadeDuration: 0.5,
+    runVelocity: 5,
+    walkVelocity: 1.8,
+    rotateSpeed: 0.05,
+    floorDecale: 0,
+
+};
 
 
 //TRY TO CAPTURE ERRORS
@@ -246,12 +285,83 @@ firebase.auth().onAuthStateChanged(function(user) {
 		store.dispatch('setUser');
 	}
 });
+
+clock = new THREE.Clock();
+
 // const scene = store.state.scene;
 const scene = new Scene();
 window.scene = scene;
-const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 500);
+// const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 500);
+const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 100 );
+camera.position.set( 0, 2, - 5 );
 
 window.camera = camera;
+
+
+
+
+group = new Group();
+scene.add( group );
+
+followGroup = new Group();
+scene.add( followGroup );
+
+const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
+dirLight.position.set( - 2, 5, - 3 );
+dirLight.castShadow = true;
+const cam = dirLight.shadow.camera;
+cam.top = cam.right = 2;
+cam.bottom = cam.left = - 2;
+cam.near = 3;
+cam.far = 8;
+dirLight.shadow.mapSize.set( 1024, 1024 );
+followGroup.add( dirLight );
+followGroup.add( dirLight.target );
+
+//scene.add( new THREE.CameraHelper( cam ) );
+
+// orbitControls = new OrbitControls( camera, renderer.domElement );
+// orbitControls.target.set( 0, 1, 0 );
+// orbitControls.enableDamping = true;
+// orbitControls.enablePan = false;
+// orbitControls.maxPolarAngle = PI90 - 0.05;
+// orbitControls.update();
+
+// EVENTS
+
+window.addEventListener( 'resize', onWindowResize );
+// document.addEventListener( 'keydown', onKeyDown );
+// document.addEventListener( 'keyup', onKeyUp );
+
+
+// DEMO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 let renderer, controls, mapControls, canvas, canvasContainer, composer, renderPass, rgbShiftPass, filmPass, halftonePass, dotPass, afterimagePass;
 let redLight, blueLight, greenLight, purpleLight, orangeLight;
@@ -261,6 +371,10 @@ let invertPass, pixelatePass;
 // Morphing effect variables
 let morphingEffects = {};
 let morphingActive = false;
+
+
+
+
 
 // Enhanced easing functions for smoother morphing
 function smoothEasing(t) {
@@ -1681,16 +1795,16 @@ function handleKeyDown(e) {
                 syncHalftoneGUI();
             }
             break;
-        case 'w': // Film hold
-            if (filmPass && filmPass.uniforms) {
-                window.keyboard.holdW = true;
-                filmPass.enabled = true;
-                filmPass.uniforms['nIntensity'].value = 0.2 + 0.8 * a;
-                filmPass.uniforms['sIntensity'].value = 0.05 + 0.25 * a;
-                filmPass.uniforms['sCount'].value = 1024 + Math.floor(3072 * a);
-                filmPass.uniforms['grayscale'].value = false;
-            }
-            break;
+        // case 'w': // Film hold
+        //     if (filmPass && filmPass.uniforms) {
+        //         window.keyboard.holdW = true;
+        //         filmPass.enabled = true;
+        //         filmPass.uniforms['nIntensity'].value = 0.2 + 0.8 * a;
+        //         filmPass.uniforms['sIntensity'].value = 0.05 + 0.25 * a;
+        //         filmPass.uniforms['sCount'].value = 1024 + Math.floor(3072 * a);
+        //         filmPass.uniforms['grayscale'].value = false;
+        //     }
+        //     break;
         case 'e': // RGB shift hold
             if (rgbShiftPass && rgbShiftPass.uniforms) {
                 window.keyboard.holdE = true;
@@ -1782,30 +1896,30 @@ function handleKeyDown(e) {
             break;
 
         // Second row: one-way enables (no toggle off)
-        case 'a':
-            if (halftonePass && halftonePass.uniforms) {
-                halftonePass.enabled = true;
-                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 20.5 + a * 2.5;
-                // setHalftoneScatter(10.5 + a);
-                syncHalftoneGUI();
-            }
-        case 's':
-            if (filmPass && filmPass.uniforms) {
-                filmPass.enabled = true;
-                filmPass.uniforms['nIntensity'].value = 0.35;
-                filmPass.uniforms['sIntensity'].value = 0.08;
-                filmPass.uniforms['sCount'].value = 2048;
-                filmPass.uniforms['grayscale'].value = false;
-            }
-            break;
-        case 'd':
-            if (rgbShiftPass && rgbShiftPass.uniforms) {
-                rgbShiftPass.enabled = true;
-                rgbShiftPass.uniforms['amount'].value = 0.035;
-                rgbShiftPass.uniforms.amount.value = 0.035;
-                rgbShiftPass.uniforms['angle'].value = Math.PI * 0.1;
-            }
-            break;
+        // case 'a':
+        //     if (halftonePass && halftonePass.uniforms) {
+        //         halftonePass.enabled = true;
+        //         if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 20.5 + a * 2.5;
+        //         // setHalftoneScatter(10.5 + a);
+        //         syncHalftoneGUI();
+        //     }
+        // case 's':
+        //     if (filmPass && filmPass.uniforms) {
+        //         filmPass.enabled = true;
+        //         filmPass.uniforms['nIntensity'].value = 0.35;
+        //         filmPass.uniforms['sIntensity'].value = 0.08;
+        //         filmPass.uniforms['sCount'].value = 2048;
+        //         filmPass.uniforms['grayscale'].value = false;
+        //     }
+        //     break;
+        // case 'd':
+        //     if (rgbShiftPass && rgbShiftPass.uniforms) {
+        //         rgbShiftPass.enabled = true;
+        //         rgbShiftPass.uniforms['amount'].value = 0.035;
+        //         rgbShiftPass.uniforms.amount.value = 0.035;
+        //         rgbShiftPass.uniforms['angle'].value = Math.PI * 0.1;
+        //     }
+        //     break;
         case 'f':
             if (dotPass && dotPass.uniforms) {
                 dotPass.enabled = true;
@@ -2059,12 +2173,12 @@ function handleKeyUp(e) {
 
             }
             break;
-        case 'w':
-            if (window.keyboard.holdW && filmPass) {
-                window.keyboard.holdW = false;
-                filmPass.enabled = false;
-            }
-            break;
+        // case 'w':
+        //     if (window.keyboard.holdW && filmPass) {
+        //         window.keyboard.holdW = false;
+        //         filmPass.enabled = false;
+        //     }
+        //     break;
         case 'e':
             if (window.keyboard.holdE && rgbShiftPass && rgbShiftPass.uniforms) {
                 window.keyboard.holdE = false;
@@ -2866,15 +2980,15 @@ renderer.setClearColor(0xffffff, 1);
 	bokehUniforms['textureWidth'].value = window.innerWidth;
 	bokehUniforms['textureHeight'].value = window.innerHeight;
 
-	bokehPass = new ShaderPass({
-		uniforms: bokehUniforms,
-		vertexShader: bokehShader.vertexShader,
-		fragmentShader: bokehShader.fragmentShader,
-		defines: {
-			RINGS: shaderSettings.rings,
-			SAMPLES: shaderSettings.samples
-		}
-	});
+	// bokehPass = new ShaderPass({
+	// 	uniforms: bokehUniforms,
+	// 	vertexShader: bokehShader.vertexShader,
+	// 	fragmentShader: bokehShader.fragmentShader,
+	// 	defines: {
+	// 		RINGS: shaderSettings.rings,
+	// 		SAMPLES: shaderSettings.samples
+	// 	}
+	// });
 
 
 	// Add RGB Shift effect
@@ -2921,8 +3035,8 @@ renderer.setClearColor(0xffffff, 1);
 	rtTextureColor = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
 
 	// Set bokeh pass uniforms
-	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
-	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
+	// bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
+	// bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
 
 	composer.addPass(rgbShiftPass);
 	// Hue/Saturation pass for palette toggles
@@ -2974,7 +3088,7 @@ renderer.setClearColor(0xffffff, 1);
 	composer.addPass(halftonePass);
     composer.addPass(dotColorPass);
 	composer.addPass(afterimagePass);
-	composer.addPass(bokehPass);
+	// composer.addPass(bokehPass);
 
 	// Create ASCII pass
 	const asciiShader = {
@@ -3230,6 +3344,10 @@ console.log('router.currentRoute.path', router.currentRoute.path)
 		event.target.focus();
 	});
 
+    document.body.addEventListener( 'mousemove', ( e )=>{
+        playerControls.handleMouseMoveRotate( e )
+    });
+
 	// Add mouse interaction for bokeh focus
 	canvas.addEventListener('pointermove', onPointerMove);
 
@@ -3238,17 +3356,17 @@ console.log('router.currentRoute.path', router.currentRoute.path)
 
 	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
 	controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true; // Restore damping for smooth mouse controls
-	controls.enablePan = true; // Enable right-click panning to move objects/camera
-	controls.dampingFactor = 0.25;
-	controls.zoomSpeed = 0.5;
-	controls.rotateSpeed = 0.5;
-	controls.keys = {
-		LEFT: 65,
-		UP: 87,
-		RIGHT: 68,
-		BOTTOM: 83
-	};
+	// controls.enableDamping = true; // Restore damping for smooth mouse controls
+	// controls.enablePan = true; // Enable right-click panning to move objects/camera
+	// controls.dampingFactor = 0.25;
+	// controls.zoomSpeed = 0.5;
+	// controls.rotateSpeed = 0.5;
+	// controls.keys = {
+	// 	LEFT: 65,
+	// 	UP: 87,
+	// 	RIGHT: 68,
+	// 	BOTTOM: 83
+	// };
 
 	mapControls = new MapControls(camera, renderer.domElement);
 	mapControls.enableDamping = true; // Restore damping for smooth mouse controls
@@ -3258,7 +3376,7 @@ console.log('router.currentRoute.path', router.currentRoute.path)
 
 	window.mapControls = mapControls;
 	window.controls = controls;
-	camera.position.set(6, 2.5, 4);
+	// camera.position.set(6, 2.5, 4);
 	// controls.target.set(6, 0, 0);
 
     scene.add(hemisphereLight);
@@ -3318,7 +3436,7 @@ console.log('router.currentRoute.path', router.currentRoute.path)
     window.headerHidden = true;
 }
 
-
+let orbitControls;
 function initGame() {
     // handleGamepadInput()
 	canvasContainer = document.querySelector('.canvas-container');
@@ -3327,11 +3445,96 @@ function initGame() {
 	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearAlpha(1);
+    renderer.setClearAlpha(1);
 renderer.setClearColor(0xffffff, 1);
-	canvasContainer.appendChild(renderer.domElement);
 
-	// Auto-focus canvas by simulating a click shortly after load
+
+// renderer = new THREE.WebGLRenderer( { antialias: true } );
+// renderer.setPixelRatio( window.devicePixelRatio );
+// renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.setAnimationLoop( animate );
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.5;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    canvasContainer.appendChild( renderer.domElement );
+     orbitControls = new OrbitControls( camera, renderer.domElement );
+
+    // --- Camera Control Configuration ---
+    // Use Right Mouse Button to rotate, and disable rotation on Left Mouse Button.
+    orbitControls.mouseButtons = {
+        LEFT: null, // No action on left-click
+        MIDDLE: THREE.MOUSE.DOLLY, // Middle mouse button to zoom
+        RIGHT: THREE.MOUSE.ROTATE // Right mouse button to rotate
+    };
+
+    orbitControls.target.set( 0, 1, 0 );
+    orbitControls.enableDamping = true;
+    // orbitControls.autoRotate = true;
+    orbitControls.enablePan = false;
+    orbitControls.maxPolarAngle = PI90 - 0.05;
+    orbitControls.update();
+
+	// canvasContainer.appendChild(renderer.domElement);
+
+    document.addEventListener( 'keydown', onKeyDown );
+    document.addEventListener( 'keyup', onKeyUp );
+
+    group = new Group();
+    scene.add( group );
+
+    followGroup = new Group();
+    scene.add( followGroup );
+
+    const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
+    dirLight.position.set( - 2, 5, - 3 );
+    dirLight.castShadow = true;
+    const cam = dirLight.shadow.camera;
+    cam.top = cam.right = 2;
+    cam.bottom = cam.left = - 2;
+    cam.near = 3;
+    cam.far = 8;
+    dirLight.shadow.mapSize.set( 1024, 1024 );
+    followGroup.add( dirLight );
+    followGroup.add( dirLight.target );
+
+//scene.add( new THREE.CameraHelper( cam ) );
+
+// orbitControls = new OrbitControls( camera, renderer.domElement );
+// orbitControls.target.set( 0, 1, 0 );
+// orbitControls.enableDamping = true;
+// orbitControls.enablePan = false;
+// orbitControls.maxPolarAngle = PI90 - 0.05;
+// orbitControls.update();
+
+// EVENTS
+
+    window.addEventListener( 'resize', onWindowResize );
+    document.addEventListener( 'keydown', onKeyDown );
+    document.addEventListener( 'keyup', onKeyUp );
+
+
+// DEMO
+
+    new HDRLoader()
+        .setPath( 'public/examples/textures/equirectangular/' )
+        .load( 'lobe.hdr', function ( texture ) {
+
+            console.log( 'HDR')
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            scene.environment = texture;
+            scene.environmentIntensity = 1.5;
+
+            loadModel();
+            addFloor();
+
+        } );
+
+
+
+
+
+    // Auto-focus canvas by simulating a click shortly after load
 	try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
 
 	// Setup post-processing composer
@@ -3371,6 +3574,10 @@ renderer.setClearColor(0xffffff, 1);
 	const bokehUniforms = UniformsUtils.clone(bokehShader.uniforms);
 	bokehUniforms['textureWidth'].value = window.innerWidth;
 	bokehUniforms['textureHeight'].value = window.innerHeight;
+    const shaderSettings = {
+        rings: 3,
+        samples: 4
+    };
 
 	bokehPass = new ShaderPass({
 		uniforms: bokehUniforms,
@@ -3743,28 +3950,31 @@ console.log('router.currentRoute.path', router.currentRoute.path)
     console.log("Gamepad:", navigator.getGamepads()[0]);
 
 	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
-	controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true; // Restore damping for smooth mouse controls
-	controls.enablePan = true; // Enable right-click panning to move objects/camera
-	controls.dampingFactor = 0.25;
-	controls.zoomSpeed = 0.5;
-	controls.rotateSpeed = 0.5;
-	controls.keys = {
-		LEFT: 65,
-		UP: 87,
-		RIGHT: 68,
-		BOTTOM: 83
-	};
-
-	mapControls = new MapControls(camera, renderer.domElement);
-	mapControls.enableDamping = true; // Restore damping for smooth mouse controls
-	mapControls.dampingFactor = 0.25;
-	mapControls.screenSpacePanning = false;
-	mapControls.maxPolarAngle = Math.PI / 2;
+	// controls = new OrbitControls(camera, renderer.domElement);
+	// controls.enableDamping = true; // Restore damping for smooth mouse controls
+	// controls.enablePan = true; // Enable right-click panning to move objects/camera
+	// controls.dampingFactor = 0.25;
+	// controls.zoomSpeed = 0.5;
+	// controls.rotateSpeed = 0.5;
+	// controls.keys = {
+	// 	LEFT: 65,
+	// 	UP: 87,
+	// 	RIGHT: 68,
+	// 	BOTTOM: 83
+	// };
+    //
+	// mapControls = new MapControls(camera, renderer.domElement);
+	// mapControls.enableDamping = true; // Restore damping for smooth mouse controls
+	// mapControls.dampingFactor = 0.25;
+	// mapControls.screenSpacePanning = false;
+	// mapControls.maxPolarAngle = Math.PI / 2;
 
 	window.mapControls = mapControls;
-	window.controls = controls;
-	camera.position.set(6, 2.5, 4);
+    window.controls = controls;
+
+    // window.mapControls = mapControls;
+    // window.controls = controls;
+    // camera.position.set(6, 2.5, 4);
 	// controls.target.set(6, 0, 0);
 
     scene.add(hemisphereLight);
@@ -3840,9 +4050,9 @@ function setInitialCameraPose() {
 	if (store.state.initialCameraPose && firstTimeAtRoute) {
 		firstTimeAtRoute = false;
 		let pose = store.state.initialCameraPose;
-		camera.position.set(pose[0], pose[1], pose[2]);
-		controls.target.set(pose[0], 0, 0);
-		mapControls.target.set(pose[0], 0, 0);
+		// camera.position.set(pose[0], pose[1], pose[2]);
+        // controls.target.set(pose[0], 0, 0);
+        // mapControls.target.set(pose[0], 0, 0);
 	}
 }
 
@@ -4070,6 +4280,11 @@ function handleGamepadInput() {
                 clientY: virtualCursor.y
             };
             onMouseMove(fakeMoveEvent);
+
+
+
+
+
 
             // Button mappings for different actions (with safety checks)
             // Button 0 (A/Cross): Click/Select
@@ -4533,7 +4748,7 @@ function handleGamepadTriggers(gamepad) {
 
             niceBlurPulse(2300, 650);
             spinCamera180(false, 5250, 0.1);
-            
+
             // Film grain
             if (filmPass && filmPass.uniforms) {
                 filmPass.enabled = true;
@@ -5292,8 +5507,11 @@ function render(time) {
 	if (!animationPaused) {
 		requestAnimationFrame(render);
 	}
+    if (!router.currentRoute.path.startsWith('/game/')) {
+        handleGamepadInput();
+    } else {
 
-    handleGamepadInput();
+    }
 
     // Animate colorful lights
     const timeInSeconds = time * 0.001; // Convert to seconds
@@ -5440,8 +5658,8 @@ function render(time) {
 	// if(player) player.update();
 	// updateRemotePlayers();
 	let enableKeys = store.state.selectedSculpture ? false : true;
-	mapControls.enableKeys = true;
-	controls.enableKeys = enableKeys;
+	// mapControls.enableKeys = true;
+	// controls.enableKeys = enableKeys;
     const speed = 0.05;
     // //console.log(gamepad)
 
@@ -5451,13 +5669,13 @@ function render(time) {
     // camera.position.y += virtualCursor.y;
     // camera.position.x += virtualCursor.x;
     // camera.position.y += 23;
-	if(controls.enabled) {
-
-		controls.update();
-	}
-	if(mapControls.enabled) {
-		mapControls.update();
-	}
+	// if(controls.enabled) {
+    //
+	// 	controls.update();
+	// }
+	// if(mapControls.enabled) {
+	// 	mapControls.update();
+	// }
 
 	// Trail fading, gentle per-frame curvature, and occasional generation
 	try {
@@ -5881,5 +6099,295 @@ function onCanvasResize() {
 		windowHalfX = width / 2;
 		windowHalfY = height / 2;
 	}
+}
+
+
+
+
+function addFloor() {
+
+    const size = 50;
+    const repeat = 16;
+
+    const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+
+    const floorT = new THREE.TextureLoader().load( 'public/examples/textures/floors/FloorsCheckerboard_S_Diffuse.jpg' );
+    floorT.colorSpace = THREE.SRGBColorSpace;
+    floorT.repeat.set( repeat, repeat );
+    floorT.wrapS = floorT.wrapT = THREE.RepeatWrapping;
+    floorT.anisotropy = maxAnisotropy;
+
+    const floorN = new THREE.TextureLoader().load( 'public/examples/textures/floors/FloorsCheckerboard_S_Normal.jpg' );
+    floorN.repeat.set( repeat, repeat );
+    floorN.wrapS = floorN.wrapT = THREE.RepeatWrapping;
+    floorN.anisotropy = maxAnisotropy;
+
+    const mat = new THREE.MeshStandardMaterial( { map: floorT, normalMap: floorN, normalScale: new THREE.Vector2( 0.5, 0.5 ), color: 0x404040, depthWrite: false, roughness: 0.85 } );
+
+    const g = new THREE.PlaneGeometry( size, size, 50, 50 );
+    g.rotateX( - PI90 );
+
+    floor = new THREE.Mesh( g, mat );
+    floor.receiveShadow = true;
+    scene.add( floor );
+
+    playerControls.floorDecale = ( size / repeat ) * 4;
+
+    const bulbGeometry = new THREE.SphereGeometry( 0.05, 16, 8 );
+    const bulbLight = new THREE.PointLight( 0xffee88, 2, 500, 2 );
+
+    const bulbMat = new THREE.MeshStandardMaterial( { emissive: 0xffffee, emissiveIntensity: 1, color: 0x000000 } );
+    bulbLight.add( new THREE.Mesh( bulbGeometry, bulbMat ) );
+    bulbLight.position.set( 1, 0.1, - 3 );
+    bulbLight.castShadow = true;
+    floor.add( bulbLight );
+
+}
+
+function loadModel() {
+
+    const loader = new GLTFLoader();
+    loader.load( 'public/examples/models/gltf/Soldier.glb', function ( gltf ) {
+
+
+        model = gltf.scene;
+        group.add( model );
+        model.rotation.y = PI;
+        group.rotation.y = PI;
+
+        model.traverse( function ( object ) {
+
+            if ( object.isMesh ) {
+
+                if ( object.name == 'vanguard_Mesh' ) {
+
+                    object.castShadow = true;
+                    object.receiveShadow = true;
+                    //object.material.envMapIntensity = 0.5;
+                    object.material.metalness = 1.0;
+                    object.material.roughness = 0.2;
+                    object.material.color.set( 1, 1, 1 );
+                    object.material.metalnessMap = object.material.map;
+
+                } else {
+
+                    object.material.metalness = 1;
+                    object.material.roughness = 0;
+                    object.material.transparent = true;
+                    object.material.opacity = 0.8;
+                    object.material.color.set( 1, 1, 1 );
+
+                }
+
+            }
+
+        } );
+
+        //
+
+        skeleton = new THREE.SkeletonHelper( model );
+        skeleton.setColors( new THREE.Color( 0xe000ff ), new THREE.Color( 0x00e0ff ) );
+        skeleton.visible = false;
+        scene.add( skeleton );
+
+        //
+
+        createPanel();
+
+        //
+
+        const animations = gltf.animations;
+
+        mixer = new THREE.AnimationMixer( model );
+
+        actions = {
+            Idle: mixer.clipAction( animations[ 0 ] ),
+            Walk: mixer.clipAction( animations[ 3 ] ),
+            Run: mixer.clipAction( animations[ 1 ] )
+        };
+
+        for ( const m in actions ) {
+
+            actions[ m ].enabled = true;
+            actions[ m ].setEffectiveTimeScale( 1 );
+            if ( m !== 'Idle' ) actions[ m ].setEffectiveWeight( 0 );
+
+        }
+
+        actions.Idle.play();
+
+        animate();
+
+    } );
+
+}
+
+function updateCharacter( delta ) {
+
+
+
+
+    const fade = playerControls.fadeDuration;
+    const key = playerControls.key;
+    const up = playerControls.up;
+    const ease = playerControls.ease;
+    const rotate = playerControls.rotate;
+    const position = playerControls.position;
+    const azimuth = orbitControls.getAzimuthalAngle();
+
+    const active = key[ 0 ] === 0 && key[ 1 ] === 0 ? false : true;
+    const play = active ? ( key[ 2 ] ? 'Run' : 'Walk' ) : 'Idle';
+
+    // change animation
+
+    if ( playerControls.current != play ) {
+
+
+
+        const current = actions[ play ];
+        const old = actions[ playerControls.current ];
+        playerControls.current = play;
+
+        if ( settings.fixe_transition ) {
+
+            current.reset();
+            current.weight = 1.0;
+            current.stopFading();
+            old.stopFading();
+            // synchro if not idle
+            if ( play !== 'Idle' ) current.time = old.time * ( current.getClip().duration / old.getClip().duration );
+            old._scheduleFading( fade, old.getEffectiveWeight(), 0 );
+            current._scheduleFading( fade, current.getEffectiveWeight(), 1 );
+            current.play();
+
+        } else {
+
+            setWeight( current, 1.0 );
+            old.fadeOut( fade );
+            current.reset().fadeIn( fade ).play();
+
+        }
+
+    }
+
+    // move object
+
+    if ( playerControls.current !== 'Idle' ) {
+
+        // run/walk velocity
+        const velocity = playerControls.current == 'Run' ? playerControls.runVelocity : playerControls.walkVelocity;
+
+        // direction with key
+        ease.set( key[ 1 ], 0, key[ 0 ] ).multiplyScalar( velocity * delta );
+
+        // calculate camera direction
+        const angle = unwrapRad( Math.atan2( ease.x, ease.z ) + azimuth );
+        rotate.setFromAxisAngle( up, angle );
+
+        // apply camera angle on ease
+        playerControls.ease.applyAxisAngle( up, azimuth );
+
+        position.add( ease );
+        camera.position.add( ease );
+
+        group.position.copy( position );
+        group.quaternion.rotateTowards( rotate, playerControls.rotateSpeed );
+
+        orbitControls.target.copy( position ).add( { x: 0, y: 1, z: 0 } );
+        followGroup.position.copy( position );
+
+        // Move the floor without any limit
+        const dx = ( position.x - floor.position.x );
+        const dz = ( position.z - floor.position.z );
+        if ( Math.abs( dx ) > playerControls.floorDecale ) floor.position.x += dx;
+        if ( Math.abs( dz ) > playerControls.floorDecale ) floor.position.z += dz;
+
+    }
+
+    if ( mixer ) mixer.update( delta );
+
+    orbitControls.update();
+
+}
+
+function unwrapRad( r ) {
+
+    return Math.atan2( Math.sin( r ), Math.cos( r ) );
+
+}
+
+function createPanel() {
+
+    const panel = new GUI( { width: 310 } );
+
+    panel.add( settings, 'show_skeleton' ).onChange( ( b ) => {
+
+        skeleton.visible = b;
+
+    } );
+
+    panel.add( settings, 'fixe_transition' );
+
+}
+
+function setWeight( action, weight ) {
+
+    action.enabled = true;
+    action.setEffectiveTimeScale( 1 );
+    action.setEffectiveWeight( weight );
+
+}
+
+
+
+
+function onKeyDown( event ) {
+
+    const key = playerControls.key;
+    switch ( event.code ) {
+
+        case 'ArrowUp': case 'KeyW': case 'KeyZ': key[ 0 ] = - 1; break;
+        case 'ArrowDown': case 'KeyS': key[ 0 ] = 1; break;
+        case 'ArrowLeft': case 'KeyA': case 'KeyQ': key[ 1 ] = - 1; break;
+        case 'ArrowRight': case 'KeyD': key[ 1 ] = 1; break;
+        case 'ShiftLeft' : case 'ShiftRight' : key[ 2 ] = 1; break;
+
+    }
+
+}
+
+function onKeyUp( event ) {
+
+    const key = playerControls.key;
+    switch ( event.code ) {
+
+        case 'ArrowUp': case 'KeyW': case 'KeyZ': key[ 0 ] = key[ 0 ] < 0 ? 0 : key[ 0 ]; break;
+        case 'ArrowDown': case 'KeyS': key[ 0 ] = key[ 0 ] > 0 ? 0 : key[ 0 ]; break;
+        case 'ArrowLeft': case 'KeyA': case 'KeyQ': key[ 1 ] = key[ 1 ] < 0 ? 0 : key[ 1 ]; break;
+        case 'ArrowRight': case 'KeyD': key[ 1 ] = key[ 1 ] > 0 ? 0 : key[ 1 ]; break;
+        case 'ShiftLeft' : case 'ShiftRight' : key[ 2 ] = 0; break;
+
+    }
+
+}
+
+function onWindowResize() {
+
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize( window.innerWidth, window.innerHeight );
+
+}
+
+function animate() {
+
+    // Render loop
+
+    const delta = clock.getDelta();
+
+    updateCharacter( delta );
+
+    renderer.render( scene, camera );
+
 }
 window.onCanvasResize = onCanvasResize;

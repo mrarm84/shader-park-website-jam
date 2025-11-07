@@ -27,7 +27,7 @@ module.exports = {
           },
             {
             // Use the CacheFirst strategy for other static assets
-            urlPattern: /\.(?:js|css|png|jpg|jpeg|svg|sp)$/,
+            urlPattern: /\.(?:js|css|png|jpg|jpeg|svg|sp|hdr)$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'static-assets',
