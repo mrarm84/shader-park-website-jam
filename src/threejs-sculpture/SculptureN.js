@@ -55,6 +55,8 @@ export class Sculpture {
         this.setIsGlSl(isGlsl);
         this.setOpacity(1.0);
         this.setAudiolevel(0.0);
+
+        this.mesh.scale.set(5,5,5)
     }
 
     setMSDFTexture(texture) {

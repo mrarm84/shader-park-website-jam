@@ -7,11 +7,43 @@ import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
 import * as THREE from 'three/webgpu';
 
-import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
+import {
+    EquirectangularReflectionMapping,
+    PCFSoftShadowMap,
+    ACESFilmicToneMapping,
+    MeshStandardMaterial,
+    Scene,
+    Inspector,
+    Quaternion,
+    WebGLRenderTarget,
+    HalfFloatType,
+    UniformsUtils,
+    ShaderMaterial,
+    Color,
+    PerspectiveCamera,
+    Vector2,
+    Vector3,
+    Raycaster,
+    HemisphereLight,
+    TextureLoader,
+    WebGLRenderer,
+    FrontSide,
+    BackSide,
+    BufferGeometry,
+    Line,
+    LineDashedMaterial,
+    CatmullRomCurve3,
+    Group,
+    Mesh,
+    MeshBasicMaterial,
+    IcosahedronGeometry,
+    AdditiveBlending,
+    SubtractiveBlending,
+    MultiplyBlending,
+    SRGBColorSpace
+} from 'three';
 import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'three/tsl';
 
-// import { MeshStandardMaterial, Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three/webgpu';
-// import * as THREE from 'three';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -103,6 +135,7 @@ let clicking = false;
 // PLAYER
 
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import {Fog, RepeatWrapping} from "three/webgpu";
 
 let floor;
 let group, followGroup, model, skeleton, mixer, clock;
@@ -124,7 +157,7 @@ const playerControls = {
     position: new THREE.Vector3(),
     up: new THREE.Vector3( 0, 1, 0 ),
     rotate: new THREE.Quaternion(),
-    current: 'Idle',
+    current: 'idle',
     fadeDuration: 0.5,
     runVelocity: 5,
     walkVelocity: 1.8,
@@ -202,6 +235,8 @@ router.beforeEach((to, from, next) => {
 	};
 	if (store.state.selectedSculpture) { //fade single sculpture if selected
 		let id = store.state.selectedSculpture.id;
+        console.log('store.state.selectedSculpture', store.state.selectedSculpture)
+
 		transitionSculptureOpacity(id, 0.0, 1000).then(() => {
 			const nextRouteHasSculptureSelected = to.matched.some(record => record.meta.selectedSculpture);
 			if (!nextRouteHasSculptureSelected) {
@@ -290,9 +325,15 @@ clock = new THREE.Clock();
 
 // const scene = store.state.scene;
 const scene = new Scene();
+
+scene.background = new Color( 0x5e5d5d );
+scene.fog = new Fog( 0x5e5d5d, 2, 20 );
+
 window.scene = scene;
 // const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 500);
 const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 100 );
+camera.position.set( 0, 2, - 5 );
+
 camera.position.set( 0, 2, - 5 );
 
 window.camera = camera;
@@ -1250,6 +1291,9 @@ function createAudioUI() {
         window.rotateXEnabled = !window.rotateXEnabled;
         rotBtn.style.background = window.rotateXEnabled ? '#43a047' : '#fff';
         rotBtn.style.color = window.rotateXEnabled ? '#fff' : '#333';
+    });
+    rotBtn.addEventListener('onmouseover', () => {
+        window.rotateXEnabled = !window.rotateXEnabled;
     });
     document.body.appendChild(rotBtn);
     window.topControls.push(rotBtn);
@@ -2657,7 +2701,7 @@ function randomizeAllParams() {
         }
         // Background
         if (rBool(0.6)) {
-            applyBackground(2); // random bg
+            // applyBackground(2); // random bg
         }
         // Bokeh: randomize only if currently enabled; do not force enable to respect bumper-only rule
         try {
@@ -3453,10 +3497,10 @@ renderer.setClearColor(0xffffff, 1);
 // renderer.setPixelRatio( window.devicePixelRatio );
 // renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.setAnimationLoop( animate );
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.5;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = PCFSoftShadowMap;
     canvasContainer.appendChild( renderer.domElement );
      orbitControls = new OrbitControls( camera, renderer.domElement );
 
@@ -3521,7 +3565,7 @@ renderer.setClearColor(0xffffff, 1);
         .load( 'lobe.hdr', function ( texture ) {
 
             console.log( 'HDR')
-            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.mapping = EquirectangularReflectionMapping;
             scene.environment = texture;
             scene.environmentIntensity = 1.5;
 
@@ -3934,7 +3978,7 @@ console.log('router.currentRoute.path', router.currentRoute.path)
 
 
 	// Apply initial background according to bgMode
-	try { applyBackground(window.bgMode || 1); } catch(e){}
+	// try { applyBackground(window.bgMode || 1); } catch(e){}
 
 	canvas = document.querySelector('canvas');
 	canvas.setAttribute('tabindex', '0');
@@ -3944,9 +3988,10 @@ console.log('router.currentRoute.path', router.currentRoute.path)
 	});
 
 	// Add mouse interaction for bokeh focus
-	canvas.addEventListener('pointermove', onPointerMove);
+	// canvas.addEventListener('pointermove', onPointerMove);
 
-	// canvas.addEventListener('mousemove', onMouseMove, false);
+	canvas.addEventListener('click', onMouseMove, false);
+	canvas.addEventListener('mousemove', onMouseMove, false);
     console.log("Gamepad:", navigator.getGamepads()[0]);
 
 	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
@@ -5555,9 +5600,11 @@ function render(time) {
 		onCanvasResize();
 	}
 
-	if(store.state.objectsToUpdate.length == 1) {
-		controls.enabled = true;
-		mapControls.enabled = false;
+    if (!router.currentRoute.path.startsWith('/game/')) {
+        if(store.state.objectsToUpdate.length == 1) {
+            controls.enabled = true;
+            mapControls.enabled = false;
+        }
 	}
 
     if (store.state.selectedSculpture) {
@@ -5572,16 +5619,22 @@ function render(time) {
 			tweenCameraToSculpturePosition(selectedSculpturePose);
 
 			sculptureHasBeenSelected = true;
-			mapControls.enabled = false;
-			controls.enabled = true;
-			cachedSelectedSculptureId = store.state.selectedSculpture.id;
+
+            if (!router.currentRoute.path.startsWith('/game/')) {
+                mapControls.enabled = false;
+                controls.enabled = true;
+            }
+
+            cachedSelectedSculptureId = store.state.selectedSculpture.id;
 		}
 		sculptureHasBeenDeselected = false;
 	} else {
 		if (!sculptureHasBeenDeselected && store.state.sculpturesLoaded) {
 			sculptureHasBeenDeselected = true;
-			mapControls.enabled = true;
-			controls.enabled = false;
+            if (!router.currentRoute.path.startsWith('/game/')) {
+                mapControls.enabled = true;
+                controls.enabled = false;
+            }
 			setInitialCameraPose();
 
 
@@ -6112,14 +6165,14 @@ function addFloor() {
     const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
 
     const floorT = new THREE.TextureLoader().load( 'public/examples/textures/floors/FloorsCheckerboard_S_Diffuse.jpg' );
-    floorT.colorSpace = THREE.SRGBColorSpace;
+    floorT.colorSpace = SRGBColorSpace;
     floorT.repeat.set( repeat, repeat );
-    floorT.wrapS = floorT.wrapT = THREE.RepeatWrapping;
+    floorT.wrapS = floorT.wrapT = RepeatWrapping;
     floorT.anisotropy = maxAnisotropy;
 
     const floorN = new THREE.TextureLoader().load( 'public/examples/textures/floors/FloorsCheckerboard_S_Normal.jpg' );
     floorN.repeat.set( repeat, repeat );
-    floorN.wrapS = floorN.wrapT = THREE.RepeatWrapping;
+    floorN.wrapS = floorN.wrapT = RepeatWrapping;
     floorN.anisotropy = maxAnisotropy;
 
     const mat = new THREE.MeshStandardMaterial( { map: floorT, normalMap: floorN, normalScale: new THREE.Vector2( 0.5, 0.5 ), color: 0x404040, depthWrite: false, roughness: 0.85 } );
@@ -6147,13 +6200,13 @@ function addFloor() {
 function loadModel() {
 
     const loader = new GLTFLoader();
-    loader.load( 'public/examples/models/gltf/Soldier.glb', function ( gltf ) {
+    loader.load( 'public/examples/models/gltf/xbot.glb', function ( gltf ) {
 
 
         model = gltf.scene;
         group.add( model );
-        model.rotation.y = PI;
-        group.rotation.y = PI;
+        // model.rotation.y = PI;
+        // group.rotation.y = PI;
 
         model.traverse( function ( object ) {
 
@@ -6199,22 +6252,22 @@ function loadModel() {
         const animations = gltf.animations;
 
         mixer = new THREE.AnimationMixer( model );
-
+        console.log('animations', animations)
         actions = {
-            Idle: mixer.clipAction( animations[ 0 ] ),
-            Walk: mixer.clipAction( animations[ 3 ] ),
-            Run: mixer.clipAction( animations[ 1 ] )
+            idle: mixer.clipAction( animations[ 2 ] ),
+            walk: mixer.clipAction( animations[ 6 ] ),
+            run: mixer.clipAction( animations[ 3 ] )
         };
 
         for ( const m in actions ) {
 
             actions[ m ].enabled = true;
             actions[ m ].setEffectiveTimeScale( 1 );
-            if ( m !== 'Idle' ) actions[ m ].setEffectiveWeight( 0 );
+            if ( m !== 'idle' ) actions[ m ].setEffectiveWeight( 0 );
 
         }
 
-        actions.Idle.play();
+        actions.idle.play();
 
         animate();
 
@@ -6236,7 +6289,7 @@ function updateCharacter( delta ) {
     const azimuth = orbitControls.getAzimuthalAngle();
 
     const active = key[ 0 ] === 0 && key[ 1 ] === 0 ? false : true;
-    const play = active ? ( key[ 2 ] ? 'Run' : 'Walk' ) : 'Idle';
+    const play = active ? ( key[ 2 ] ? 'run' : 'walk' ) : 'idle';
 
     // change animation
 
@@ -6255,7 +6308,7 @@ function updateCharacter( delta ) {
             current.stopFading();
             old.stopFading();
             // synchro if not idle
-            if ( play !== 'Idle' ) current.time = old.time * ( current.getClip().duration / old.getClip().duration );
+            if ( play !== 'idle' ) current.time = old.time * ( current.getClip().duration / old.getClip().duration );
             old._scheduleFading( fade, old.getEffectiveWeight(), 0 );
             current._scheduleFading( fade, current.getEffectiveWeight(), 1 );
             current.play();
@@ -6272,10 +6325,10 @@ function updateCharacter( delta ) {
 
     // move object
 
-    if ( playerControls.current !== 'Idle' ) {
+    if ( playerControls.current !== 'idle' ) {
 
         // run/walk velocity
-        const velocity = playerControls.current == 'Run' ? playerControls.runVelocity : playerControls.walkVelocity;
+        const velocity = playerControls.current == 'run' ? playerControls.runVelocity : playerControls.walkVelocity;
 
         // direction with key
         ease.set( key[ 1 ], 0, key[ 0 ] ).multiplyScalar( velocity * delta );
