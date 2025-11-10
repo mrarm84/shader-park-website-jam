@@ -5,9 +5,10 @@ import 'firebase/compat/auth';
 import 'firebase/compat/database';
 import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
-import * as THREE from 'three/webgpu';
+import * as THREE from 'three';
+import { AsciiEffect } from 'three/addons/effects/AsciiEffect.js';
 
-import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
+import {  CineonToneMapping,  LinearToneMapping, ReinhardToneMapping, ACESFilmicToneMapping, MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
 import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'three/tsl';
 
 // import { MeshStandardMaterial, Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three/webgpu';
@@ -20,16 +21,23 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import { Lensflare } from 'three/addons/objects/Lensflare.js';
+import { LensflareElement } from 'three/addons/objects/Lensflare.js';
 
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import * as GeometryUtils from 'three/addons/utils/GeometryUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
+import { DotScreenShader } from 'three/addons/shaders/DotScreenShader.js';
+import { SubsurfaceScatteringShader } from 'three/addons/shaders/SubsurfaceScatteringShader.js';
 import { BokehShader, BokehDepthShader } from 'three/addons/shaders/BokehShader2.js';
 import { HalftoneShader } from 'three/addons/shaders/HalftoneShader.js';
+import { KaleidoShader } from 'three/addons/shaders/KaleidoShader.js';
 import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
 import { HalftonePass } from 'three/addons/postprocessing/HalftonePass.js';
 import { DotScreenPass } from 'three/addons/postprocessing/DotScreenPass.js';
@@ -38,7 +46,6 @@ import { HueSaturationShader } from 'three/addons/shaders/HueSaturationShader.js
 import { BrightnessContrastShader } from 'three/addons/shaders/BrightnessContrastShader.js';
 import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
 import { BloomPass } from 'three/addons/postprocessing/BloomPass.js';
-import { SAOPass } from 'three/addons/postprocessing/SAOPass.js';
 import { CubeTexturePass } from 'three/addons/postprocessing/CubeTexturePass.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
@@ -73,6 +80,8 @@ Vue.use(Vuelidate);
 Vue.config.devtools = true;
 // Vue.config.productionTip = false;
 let storageRef = firebase.storage().ref();
+let clock;
+let effect;
 
 const appCheck = firebase.appCheck();
 appCheck.activate('6LdOL7keAAAAADahgNg_e2DFCG52EFLuVVN0OTmV',true)
@@ -116,7 +125,7 @@ let firstTimeAtRoute = true;
 let mediaCap = null;
 let isCapturing = false;
 let audioEnabled = false;
-
+let mixer;
 
 
 // Gamepad button press tracking (to prevent repeated actions)
@@ -190,6 +199,9 @@ router.beforeEach((to, from, next) => {
 
 let firstInit = true;
 let vueApp;
+
+
+
 firebase.auth().onAuthStateChanged(function(user) {
 	if(firstInit) {
 		vueApp = new Vue({el: '#app', store: store, router: router, render: h => h(App)});
@@ -243,6 +255,7 @@ firebase.auth().onAuthStateChanged(function(user) {
 });
 // const scene = store.state.scene;
 const scene = new Scene();
+
 window.scene = scene;
 const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 500);
 
@@ -327,6 +340,38 @@ const blurShader = {
 
 // Blur pass for morphing transitions
 let blurPass;
+let outputPass;
+
+
+
+
+let passRegistry = {
+    // renderPass,
+    // outputPass,
+    bokehPass,
+    rgbShiftPass,
+    halftonePass,
+    dotColorPass,
+    afterimagePass,
+    hueSatPass,
+    brightnessPass,
+    vignettePass,
+    asciiPass
+};
+let passStates = {
+    // renderPass: true,
+    // outputPass: true,
+    bokehPass: false,
+    rgbShiftPass: false,
+    halftonePass: false,
+    dotColorPass: false,
+    afterimagePass: false,
+    hueSatPass: false,
+    brightnessPass: false,
+    vignettePass: false,
+    asciiPass: false
+};
+
 
 // Morphing system for smooth effect transitions
 function startMorphingEffect(effectName, targetPass, targetValue = 1.0, duration = 1000, useBlur = false) {
@@ -399,6 +444,18 @@ function startBlurryMorph(effectName, targetPass, targetValue, duration = 1500) 
     }
 
     executeStage();
+}
+
+function animate() {
+
+    const delta = clock.getDelta();
+    if (mixer) mixer.update(delta)
+
+    // stats.update();
+
+    composer.render();
+    effect.render(scene, camera);
+
 }
 
 // Animate blur intensity for smooth transitions
@@ -504,7 +561,7 @@ const params = {
 };
 
 // Bokeh depth-of-field effect variables
-let materialDepth, bokehPass, gui;
+let materialDepth, bokehPass, dotScreenPass, gui;
 let windowHalfX = window.innerWidth / 2;
 let windowHalfY = window.innerHeight / 2;
 let distance = 100;
@@ -683,7 +740,7 @@ function setupHalftoneGUI() {
         // blendMode: MultiplyBlending,
         shaderBlendingMode: 1,
         shaderBlending: halftonePass && halftonePass.uniforms && halftonePass.uniforms['blending'] ? halftonePass.uniforms['blending'].value : 1.0,
-        radius: halftonePass && halftonePass.uniforms && halftonePass.uniforms['radius'] ? halftonePass.uniforms['radius'].value : 4,
+        radius: halftonePass && halftonePass.uniforms && halftonePass.uniforms['radius'] ? halftonePass.uniforms['radius'].value : 1,
         scatter: halftonePass && halftonePass.uniforms && halftonePass.uniforms['scatter'] ? halftonePass.uniforms['scatter'].value : 0,
         enabled: halftonePass ? halftonePass.enabled : false
     };
@@ -731,7 +788,7 @@ function setupHalftoneGUI() {
     halftoneGUI.add(halftoneController, 'shaderBlending', 0.0, 1.0, 0.01).onChange(updateHalftoneBlending);
 
     // Add radius and scatter controls
-    halftoneGUI.add(halftoneController, 'radius', 0.1, 20.0, 0.1).onChange(updateHalftoneBlending);
+    halftoneGUI.add(halftoneController, 'radius', 0.1, 4.0, 0.1).onChange(updateHalftoneBlending);
     halftoneGUI.add(halftoneController, 'scatter', 0.0, 1.0, 0.01).onChange(updateHalftoneBlending);
 
     // Quick preset buttons
@@ -824,7 +881,9 @@ function setupAsciiGUI() {
     if (asciiGUI) asciiGUI.destroy();
 
     asciiGUI = new GUI({
-        title: 'ASCII Effect'
+        title: 'ASCII Effect',
+        autoPlace: true
+
     });
 
     // Position ASCII GUI
@@ -963,14 +1022,14 @@ window.halftoneParams = {
 };
 let vignettePass = null; // vignette pass
 let bloomPass = null; // bloom pass (third row)
-let saoPass = null; // SAO pass (third row)
+let unrealBloomPass = null; // bloom pass (third row)
 let cubeTexturePass = null; // CubeTexture pass (third row)
 let dotColorPass = null; // Color-preserving dot pass
 let mirrorPass = null; // Mirror pass
 let mirrorState = { x: false, y: false };
 window.audioModulationEnabled = false; // toggled via DS PS/Home button (16)
 window.audioLevel = 0.0; // expose for shaders
-window.audioGain = 2.0; // boost for audioLevel (adjustable)
+window.audioGain = 1.0; // boost for audioLevel (adjustable)
 window.rotateXEnabled = false; // toggle sculpture rotation on X
 window.rotXAngle = 0.0;       // accumulated X rotation
 window.prevR2Bin = -1;       // discrete bin for R2-driven bokeh randomization
@@ -1069,8 +1128,8 @@ function createAudioUI() {
     rotBtn.style.fontSize = '12px';
     rotBtn.addEventListener('click', () => {
         window.rotateXEnabled = !window.rotateXEnabled;
-        rotBtn.style.background = window.rotateXEnabled ? '#43a047' : '#fff';
-        rotBtn.style.color = window.rotateXEnabled ? '#fff' : '#333';
+        // rotBtn.style.background = window.rotateXEnabled ? '#43a047' : '#fff';
+        // rotBtn.style.color = window.rotateXEnabled ? '#fff' : '#333';
     });
     document.body.appendChild(rotBtn);
     window.topControls.push(rotBtn);
@@ -1307,7 +1366,7 @@ function randomBrightColor() {
 }
 
 // Smooth 180° camera spin around controls.target
-function spinCamera180(clockwise = true, duration = 450, spin = 1) {
+function spinCamera180(clockwise = true, duration = 45000, spin = 1) {
     if (!controls) return;
     const target = controls.target.clone();
     const startVec = camera.position.clone().sub(target);
@@ -1433,22 +1492,22 @@ function fractalizeAberration(iterations = 5, stepMs = 60) {
             try {
                 params.rsx = baseAmt;
                 params.rsy = baseAng;
-                rgbShiftPass.uniforms['amount'].value = baseAmt;
-                rgbShiftPass.uniforms.amount.value = baseAmt;
+                rgbShiftPass.uniforms['amount'].value = baseAmt/110;
+                rgbShiftPass.uniforms.amount.value = baseAmt/110;
                 rgbShiftPass.uniforms['angle'].value = baseAng;
             } catch(e) {}
             window.fractalL2Active = false;
             return;
         }
-        const scale = Math.pow(0.5, i); // 1, 0.5, 0.25...
-        const amt = baseAmt + baseAmt * 0.6 * scale;
+        const scale = Math.pow(0.1, i); // 1, 0.5, 0.25...
+        const amt = baseAmt + baseAmt * 0.1 * scale;
         const ang = baseAng + (i * Math.PI / 6); // +30° per step
         try {
             params.rsx = amt;
             params.rsy = ang;
             rgbShiftPass.enabled = true;
-            rgbShiftPass.uniforms['amount'].value = amt;
-            rgbShiftPass.uniforms.amount.value = amt;
+            rgbShiftPass.uniforms['amount'].value = amt/210;
+            rgbShiftPass.uniforms.amount.value = amt/210;
             rgbShiftPass.uniforms['angle'].value = ang;
         } catch(e) {}
         i++;
@@ -1479,7 +1538,7 @@ function handleKeyDown(e) {
             if (halftonePass && halftonePass.uniforms) {
                 window.keyboard.holdQ = true;
                 halftonePass.enabled = true;
-                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 20.5 + a * 2.5;
+                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 3.5 + a * 2.5;
                 // setHalftoneScatter(10.5 + a);
                 syncHalftoneGUI();
             }
@@ -1488,19 +1547,16 @@ function handleKeyDown(e) {
             if (filmPass && filmPass.uniforms) {
                 window.keyboard.holdW = true;
                 filmPass.enabled = true;
-                filmPass.uniforms['nIntensity'].value = 0.2 + 0.8 * a;
-                filmPass.uniforms['sIntensity'].value = 0.05 + 0.25 * a;
-                filmPass.uniforms['sCount'].value = 1024 + Math.floor(3072 * a);
-                filmPass.uniforms['grayscale'].value = false;
+                filmPass.uniforms.intensity.value = 0.2 + 0.8 * a;
             }
             break;
         case 'e': // RGB shift hold
             if (rgbShiftPass && rgbShiftPass.uniforms) {
                 window.keyboard.holdE = true;
                 rgbShiftPass.enabled = true;
-                rgbShiftPass.uniforms['amount'].value = 0.02 + 0.12 * a;
-                rgbShiftPass.uniforms.amount.value = 0.02 + 0.12 * a;
-                rgbShiftPass.uniforms['angle'].value = audioPhase * 0.33;
+                // rgbShiftPass.uniforms['amount'].value = 0.02 + 0.02 * a;
+                // rgbShiftPass.uniforms.amount.value = 0.02 + 0.012 * a;
+                // rgbShiftPass.uniforms['angle'].value = audioPhase * 0.33;
             }
             break;
         case 'r': // Dot color hold
@@ -1513,10 +1569,13 @@ function handleKeyDown(e) {
             }
             break;
         case 't': // Afterimage damp hold
-            if (afterimagePass && afterimagePass.uniforms) {
-                window.keyboard.holdT = true;
-                afterimagePass.enabled = true;
-                afterimagePass.uniforms['damp'].value = 2.94 - 0.12 * a;
+            if (dotPass) {
+                // window.keyboard.holdT = true;
+                dotPass.enabled = !dotPass.enabled;
+                dotScreenPass.enabled = !dotScreenPass.enabled;
+                dotColorPass.enabled = !dotColorPass.enabled;
+                filmPass.enabled = !filmPass.enabled;
+                // dotScreenPass.uniforms['damp'].value = 2.94 - 0.12 * a;
             }
             break;
         case 'y': // Vignette hold
@@ -1543,10 +1602,7 @@ function handleKeyDown(e) {
             if (filmPass && filmPass.uniforms) {
                 window.keyboard.holdI = true;
                 filmPass.enabled = true;
-                filmPass.uniforms['nIntensity'].value = 5.1 + 0.9 * a;
-                filmPass.uniforms['sIntensity'].value = 5.55 + 0.35 * a;
-                filmPass.uniforms['sCount'].value = 512 + Math.floor(4096 * a);
-                filmPass.uniforms['grayscale'].value = false;
+                filmPass.uniforms.intensity.value = 5.1 + 0.9 * a;
             }
             break;
         case 'o': // Hue/Sat wobble hold
@@ -1567,11 +1623,11 @@ function handleKeyDown(e) {
             break;
         case '[': // quick CCW micro-spin + short blur
             niceBlurPulse(300, 150);
-            spinCamera180(false, 250, 0.5);
+            spinCamera180(false, 6000, 0.5);
             break;
         case ']': // quick CW micro-spin + short blur
             niceBlurPulse(300, 150);
-            spinCamera180(true, 250, 0.5);
+            spinCamera180(true, 6000, 0.5);
             break;
         case '\\': // combo glitch hold
             window.keyboard.holdBackslash = true;
@@ -1587,17 +1643,14 @@ function handleKeyDown(e) {
         case 'a':
             if (halftonePass && halftonePass.uniforms) {
                 halftonePass.enabled = true;
-                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 20.5 + a * 2.5;
+                if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 3.5 + a * 2.5;
                 // setHalftoneScatter(10.5 + a);
                 syncHalftoneGUI();
             }
         case 's':
             if (filmPass && filmPass.uniforms) {
                 filmPass.enabled = true;
-                filmPass.uniforms['nIntensity'].value = 0.35;
-                filmPass.uniforms['sIntensity'].value = 0.08;
-                filmPass.uniforms['sCount'].value = 2048;
-                filmPass.uniforms['grayscale'].value = false;
+                filmPass.uniforms.intensity.value = 0.35;
             }
             break;
         case 'd':
@@ -1605,7 +1658,7 @@ function handleKeyDown(e) {
                 rgbShiftPass.enabled = true;
                 rgbShiftPass.uniforms['amount'].value = 0.035;
                 rgbShiftPass.uniforms.amount.value = 0.035;
-                rgbShiftPass.uniforms['angle'].value = Math.PI * 0.1;
+                rgbShiftPass.uniforms['angle'].value = Math.PI * 0.001;
             }
             break;
         case 'f':
@@ -1709,8 +1762,10 @@ function handleKeyDown(e) {
         }
         // Third row: content
         case 'z':
+            console.log('asciiEnabled', asciiEnabled)
             // Generate lines set A (Hilbert dashed)
-            try { generateLinesSetA(0xffffff, 0xff00ff); } catch(err) { console.error(err); }
+            asciiEnabled = !asciiEnabled
+            // try { generateLinesSetA(0xffffff, 0xff00ff); } catch(err) { console.error(err); }
             break;
         case 'x':
             // Really blurry morphing for pixelation
@@ -1722,11 +1777,7 @@ function handleKeyDown(e) {
             break;
         case 'c':
             // Really blurry morphing for color inversion
-            if (invertPass) {
-                const targetValue = invertPass.enabled ? 0.0 : 1.0;
-                startBlurryMorph('colorInversion', invertPass, targetValue);
-                console.log('Blurry morphing color inversion:', targetValue > 0 ? 'ON' : 'OFF');
-            }
+
             break;
         case '1': {
             // Toggle icosahedron perspective positions around target
@@ -1819,12 +1870,12 @@ function handleKeyDown(e) {
             break;
         case 'n':
             // Really blurry morphing for ASCII effect
-            if (asciiPass) {
-                const targetValue = asciiPass.enabled ? 0.0 : 1.0;
-                startBlurryMorph('ascii', asciiPass, targetValue);
-                asciiEnabled = targetValue > 0;
-                console.log('Blurry morphing ASCII effect:', targetValue > 0 ? 'ON' : 'OFF');
-            }
+            // if (asciiPass) {
+            //     const targetValue = asciiPass.enabled ? 0.0 : 1.0;
+            //     startBlurryMorph('ascii', asciiPass, targetValue);
+            //     asciiEnabled = targetValue > 0;
+            //     console.log('Blurry morphing ASCII effect:', targetValue > 0 ? 'ON' : 'OFF');
+            // }
             break;
         case 'm':
             filmPulse(0.5, 0.12, 2200, 220);
@@ -1838,7 +1889,6 @@ function handleKeyDown(e) {
         case '/':
             // cinematic combo: Bloom + SAO (one-way enable)
             if (bloomPass) bloomPass.enabled = true;
-            if (saoPass) saoPass.enabled = true;
             break;
         default: break;
     }
@@ -1879,7 +1929,7 @@ function handleKeyUp(e) {
         case 't':
             if (window.keyboard.holdT && afterimagePass && afterimagePass.uniforms) {
                 window.keyboard.holdT = false;
-                afterimagePass.uniforms['damp'].value = 0.94;
+                afterimagePass.uniforms['damp'].value = 0.54;
                 afterimagePass.enabled = false;
             }
             break;
@@ -1892,7 +1942,7 @@ function handleKeyUp(e) {
         case 'u':
             if (window.keyboard.holdU && halftonePass) {
                 window.keyboard.holdU = false;
-                // halftonePass.enabled = false;
+                halftonePass.enabled = false;
             }
             break;
         case 'i':
@@ -1922,19 +1972,16 @@ function handleKeyUp(e) {
 }
 
 function applyHeldKeyEffects() {
-    const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.7;
+    const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, audioLevel || 0)) : 0.7;
     if (window.keyboard.holdQ && halftonePass && halftonePass.uniforms) {
 
         halftonePass.enabled = true;
-        // if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.5 + a * 2.5;
+        if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.5 + a * 2.5;
         syncHalftoneGUI();
     }
     if (window.keyboard.holdW && filmPass && filmPass.uniforms) {
         filmPass.enabled = true;
-        filmPass.uniforms['nIntensity'].value = 0.2 + 0.8 * a;
-        filmPass.uniforms['sIntensity'].value = 0.05 + 0.25 * a;
-        filmPass.uniforms['sCount'].value = 1024 + Math.floor(3072 * a);
-        filmPass.uniforms['grayscale'].value = false;
+        filmPass.uniforms.intensity.value = 0.2 + 0.8 * a;
     }
     if (window.keyboard.holdE && rgbShiftPass && rgbShiftPass.uniforms) {
         const amt = 0.02 + 0.12 * a * (0.7 + 0.3 * Math.abs(Math.sin(audioPhase * 1.7)));
@@ -1950,7 +1997,7 @@ function applyHeldKeyEffects() {
     }
     if (window.keyboard.holdT && afterimagePass && afterimagePass.uniforms) {
         afterimagePass.enabled = true;
-        afterimagePass.uniforms['damp'].value = 0.94 - 0.12 * a;
+        afterimagePass.uniforms['damp'].value = 0.54 - 0.12 * a;
     }
     if (window.keyboard.holdY && vignettePass && vignettePass.uniforms) {
         vignettePass.enabled = true;
@@ -1959,16 +2006,13 @@ function applyHeldKeyEffects() {
     }
     if (window.keyboard.holdU && halftonePass && halftonePass.uniforms) {
         halftonePass.enabled = true;
-        // if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
-        // if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.2 + 2.8 * a;
+        if (halftonePass.uniforms['greyscale']) halftonePass.uniforms['greyscale'].value = false;
+        if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = 0.2 + 2.8 * a;
         syncHalftoneGUI();
     }
     if (window.keyboard.holdI && filmPass && filmPass.uniforms) {
         filmPass.enabled = true;
-        filmPass.uniforms['nIntensity'].value = 0.1 + 0.9 * a;
-        filmPass.uniforms['sIntensity'].value = 0.05 + 0.35 * a;
-        filmPass.uniforms['sCount'].value = 1024 + Math.floor(4096 * a);
-        filmPass.uniforms['grayscale'].value = false;
+        filmPass.uniforms.intensity.value = 0.1 + 0.9 * a;
     }
     if (window.keyboard.holdO && hueSatPass && hueSatPass.uniforms) {
         hueSatPass.enabled = true;
@@ -2027,7 +2071,7 @@ function applyPaletteToggles() {
         const timeJitter = 0.02 * Math.sin(audioPhase * (0.5 + 0.07 * spec.seed));
         hue += (spec.h + baseJitter + timeJitter);
         // small audio influence on saturation
-        const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.0;
+        const a = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, audioLevel || 0)) : 0.0;
         sat += (spec.s + 0.15 * a);
     }
     hue /= active.length;
@@ -2103,17 +2147,7 @@ function dotPulse(angleTarget = Math.PI / 3, scaleTarget = 0.5, upMs = 250, down
 function filmPulse(nIntensity = 0.45, sIntensity = 0.1, sCount = 2400, holdMs = 200) {
     if (!filmPass || !filmPass.uniforms) return;
     filmPass.enabled = true;
-    const n0 = filmPass.uniforms['nIntensity'].value;
-    const s0 = filmPass.uniforms['sIntensity'].value;
-    const c0 = filmPass.uniforms['sCount'].value;
-    filmPass.uniforms['nIntensity'].value = nIntensity;
-    filmPass.uniforms['sIntensity'].value = sIntensity;
-    filmPass.uniforms['sCount'].value = sCount;
-    setTimeout(() => {
-        filmPass.uniforms['nIntensity'].value = n0;
-        filmPass.uniforms['sIntensity'].value = s0;
-        filmPass.uniforms['sCount'].value = c0;
-    }, Math.max(0, holdMs));
+    const n0 = filmPass.uniforms.intensity.value;
 }
 
 function showHelpModal() {
@@ -2303,16 +2337,13 @@ function randomizeAllParams() {
         if (halftonePass && halftonePass.uniforms) {
             halftonePass.enabled = true;
             if (halftonePass.uniforms['radius']) halftonePass.uniforms['radius'].value = rIn(0.2, 3.0);
-            // setHalftoneScatter(rIn(0.0, 0.1));
+            setHalftoneScatter(rIn(0.0, 0.1));
 
         }
         // Film
         if (filmPass && filmPass.uniforms) {
             filmPass.enabled = rBool(0.7);
-            filmPass.uniforms['nIntensity'].value = rIn(0.0, 0.8);
-            filmPass.uniforms['sIntensity'].value = rIn(0.0, 0.2);
-            filmPass.uniforms['sCount'].value = Math.floor(rIn(512, 4096));
-            filmPass.uniforms['grayscale'].value = false;
+            filmPass.uniforms.intensity.value = rIn(0.0, 0.8);
         }
         // Afterimage
         if (afterimagePass && afterimagePass.uniforms) {
@@ -2325,15 +2356,7 @@ function randomizeAllParams() {
             vignettePass.uniforms['offset'].value = rIn(1.0, 1.6);
             vignettePass.uniforms['darkness'].value = rIn(0.8, 2.0);
         }
-        // SAO
-        if (saoPass && saoPass.params) {
-            saoPass.enabled = rBool(0.5);
-            saoPass.params.saoBias = rIn(0.0, 1.0);
-            saoPass.params.saoIntensity = rIn(0.0, 0.05);
-            saoPass.params.saoScale = rIn(0.5, 2.0);
-            saoPass.params.saoKernelRadius = Math.floor(rIn(8, 32));
-            saoPass.params.saoMinResolution = 0;
-        }
+
         // Bloom (toggle only; underlying params set at init)
         if (bloomPass) {
             bloomPass.enabled = rBool(0.5);
@@ -2442,12 +2465,17 @@ function toggleAllUI() {
     setControlsVisible(!hide);
     try {
         document.querySelectorAll('.action-bar, .actions-bar').forEach(el => {
+
+
             if (el) el.style.display = hide ? 'none' : '';
         });
     } catch(e) { console.error(e); }
     // Update toggle button text
     const toggleBtn = window.topControls && window.topControls.find(el => el && (el.textContent === 'hide' || el.textContent === 'show'));
     if (toggleBtn) {
+        toggleBtn.style.borderRadius = hide ? 0 : 6;
+        toggleBtn.style.borderColor = hide ? 'transparent' : '#000000';
+        toggleBtn.style.background = hide ? 'transparent' : '#ffffff';
         toggleBtn.textContent = hide ? 'show' : 'hide';
         toggleBtn.title = hide ? 'Show UI' : 'Hide UI';
     }
@@ -2523,7 +2551,10 @@ function showAudioOverlay() {
     enable.style.color = '#fff';
     enable.addEventListener('click', async () => {
         try {
+            console.log('click przed initAudio')
             await initAudio();
+            audioEnabled = true;
+            console.log('click po initAudio')
             document.removeEventListener('keydown', handleEnterKey);
             document.body.removeChild(overlay);
         } catch (e) {
@@ -2570,7 +2601,6 @@ async function initAudio() {
         analyser.getByteFrequencyData(dataArray);
         const sum = dataArray.reduce((a, b) => a + b, 0);
         const level = sum / dataArray.length / 255; // normalize to 0.0–1.0
-
         updateAudioIndicator(level); // 🔊 update visual
         // 🔁 Pass to Shader Park
 
@@ -2611,15 +2641,41 @@ function getAudioModulation(multiplier = 0.5, useSin = true) {
 
 
 function init() {
+    clock = new THREE.Clock();
+    scene.add( new THREE.AmbientLight( 0xcccccc ) );
+
+    const pointLight = new THREE.PointLight( 0xffffff, 100 );
+    camera.add( pointLight );
+
+
+
+    // const loaderGear = new GLTFLoader();
+    // loaderGear.load( 'public/examples/models/gltf/PrimaryIonDrive.glb', function ( gltf ) {
+    //     const model = gltf.scene;
+    //     scene.add( model );
+    //     mixer = new THREE.AnimationMixer( model );
+    //     const clip = gltf.animations[ 0 ];
+    //     mixer.clipAction( clip.optimize() ).play();
+    //     animate();
+    // } );
+
+
     // handleGamepadInput()
 	canvasContainer = document.querySelector('.canvas-container');
 	renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', alpha: true});
-	renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+    renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
 	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearAlpha(1);
-renderer.setClearColor(0xffffff, 1);
+    renderer.setAnimationLoop( animate );
+    // renderer.toneMapping = ACESFilmicToneMapping;
+    // renderer.toneMapping = ReinhardToneMapping;
+    renderer.toneMapping = THREE.LinearToneMapping;
+    // renderer.outputEncoding = THREE.LinearEncoding;
+
+
+    renderer.setClearAlpha(0.5);
+    renderer.setClearColor(0xffffff, 0.5);
 	canvasContainer.appendChild(renderer.domElement);
 
 	// Auto-focus canvas by simulating a click shortly after load
@@ -2632,9 +2688,152 @@ renderer.setClearColor(0xffffff, 1);
 	renderPass.params = renderPass.params || {};
 	if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
 	if (typeof renderPass.params.blendingMode !== 'number') renderPass.params.blendingMode = 1;
-	composer.addPass(renderPass);
 
-	// Setup bokeh depth shader material
+
+    const paramsBloom = {
+        enabled: false,
+        threshold: 0,
+        strength: 1,
+        radius: 0.2,
+        exposure: 0.6
+    };
+    unrealBloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ), 1.5, 0.4, 0.85 );
+    unrealBloomPass.threshold = paramsBloom.threshold;
+    unrealBloomPass.strength = paramsBloom.strength;
+    unrealBloomPass.radius = paramsBloom.radius;
+    unrealBloomPass.enabled = true;
+
+     outputPass = new OutputPass();
+
+outputPass.toneMappingExposure = 0.3;
+
+
+
+
+    const guiRenderer = new GUI();
+    guiRenderer.domElement.style.left = '240px'; // Position to the right of halftone GUI
+    // Position halftone GUI to the left of bokeh GUI
+    guiRenderer.domElement.style.position = 'absolute';
+    guiRenderer.domElement.style.top = '610px';
+
+    const rendererParams = {
+        toneMapping: 'Cineon',
+        exposure: 0.5,
+        physicallyCorrectLights: true,
+        shadowMapEnabled: true,
+        // outputEncoding: 'sRGB',
+        clearColor: '#000000', // Initial background color
+        antialias: true,
+        alpha: true
+    };
+
+    const toneMappingOptions = {
+        None: THREE.NoToneMapping,
+        Linear: THREE.LinearToneMapping,
+        Reinhard: THREE.ReinhardToneMapping,
+        Cineon: THREE.CineonToneMapping,
+        ACESFilmic: THREE.ACESFilmicToneMapping
+    };
+
+
+    const light = new THREE.PointLight( 0xffffff, 4.5, 2000 );
+    const lensflare = new Lensflare();
+
+    const textureLoader = new THREE.TextureLoader();
+
+    const textureFlare0 = textureLoader.load(
+         'public/examples/textures/lensflare/lensflare0.png'
+    );
+    const textureFlare1 = textureLoader.load(
+         'public/examples/textures/lensflare/lensflare2.png'
+    );
+    const textureFlare2 = textureLoader.load(
+         'public/examples/textures/lensflare/lensflare3.png'
+    );
+
+
+    lensflare.addElement( new LensflareElement( textureFlare0, 2512, 0 ) );
+    lensflare.addElement( new LensflareElement( textureFlare1, 2512, 0 ) );
+    lensflare.addElement( new LensflareElement( textureFlare2, 1160, 0.6 ) );
+    light.add( lensflare );
+    scene.add(light);
+
+
+    const encodingOptions = {
+        // Linear: THREE.LinearEncoding,
+        // sRGB: THREE.sRGBEncoding
+    };
+
+    const rendererFolder = guiRenderer.addFolder('Renderer Settings');
+
+
+    rendererFolder.add(rendererParams, 'toneMapping', Object.keys(toneMappingOptions)).onChange(value => {
+        renderer.toneMapping = toneMappingOptions[value];
+    });
+
+    rendererFolder.add(rendererParams, 'exposure', 0.1, 5.0).onChange(value => {
+        renderer.toneMappingExposure = value;
+    });
+
+    rendererFolder.add(rendererParams, 'physicallyCorrectLights').onChange(value => {
+        renderer.physicallyCorrectLights = value;
+    });
+
+    rendererFolder.add(rendererParams, 'shadowMapEnabled').onChange(value => {
+        renderer.shadowMap.enabled = value;
+    });
+
+    // rendererFolder.add(rendererParams, 'outputEncoding', Object.keys(encodingOptions)).onChange(value => {
+    //     renderer.outputEncoding = encodingOptions[value];
+    // });
+
+    rendererFolder.addColor(rendererParams, 'clearColor').onChange(value => {
+        renderer.setClearColor(value);
+    });
+
+    rendererFolder.add(rendererParams, 'antialias').onChange(value => {
+        console.warn('Antialiasing can only be set at renderer creation');
+    });
+
+    rendererFolder.add(rendererParams, 'alpha').onChange(value => {
+        console.warn('Alpha can only be set at renderer creation');
+    });
+
+
+    const guiBloom = new GUI({
+        autoPlace: true
+
+    });
+    guiBloom.domElement.style.left = '10px';
+
+    // Position halftone GUI to the left of bokeh GUI
+    guiBloom.domElement.style.position = 'relative';
+    guiBloom.domElement.style.bottom = '80px';
+
+    const bloomFolder = guiBloom.addFolder('bloom');
+    paramsBloom.enabled = true; // default value
+
+    bloomFolder.add(paramsBloom, 'enabled').onChange(function (value) {
+        unrealBloomPass.enabled = value;
+    });
+
+    bloomFolder.add(paramsBloom, 'threshold', 0.0, 1.0).onChange(function (value) {
+        unrealBloomPass.threshold = Number(value);
+    });
+    bloomFolder.add(paramsBloom, 'strength', 0.0, 3.0).onChange(function (value) {
+        unrealBloomPass.strength = Number(value);
+    });
+    guiBloom.add(paramsBloom, 'radius', 0.0, 1.0).step(0.01).onChange(function (value) {
+        unrealBloomPass.radius = Number(value);
+    });
+    const toneMappingFolder = guiBloom.addFolder('tone mapping');
+    toneMappingFolder.add(paramsBloom, 'exposure', 0.1, 2).onChange(function (value) {
+        renderer.toneMappingExposure = Math.pow(value, 4.0);
+    });
+
+
+
+    // Setup bokeh depth shader material
 	const depthShader = BokehDepthShader;
     // depthShader.fragmentShader = /* glsl */`
     //
@@ -2663,6 +2862,11 @@ renderer.setClearColor(0xffffff, 1);
 	bokehUniforms['textureWidth'].value = window.innerWidth;
 	bokehUniforms['textureHeight'].value = window.innerHeight;
 
+	// Setup bokeh pass
+	const dotScreenShader = DotScreenShader;
+	const dotScreenUniforms = UniformsUtils.clone(dotScreenShader.uniforms);
+    dotScreenUniforms['scale'].value = 4;
+
 	bokehPass = new ShaderPass({
 		uniforms: bokehUniforms,
 		vertexShader: bokehShader.vertexShader,
@@ -2672,6 +2876,19 @@ renderer.setClearColor(0xffffff, 1);
 			SAMPLES: shaderSettings.samples
 		}
 	});
+
+	dotScreenPass = new ShaderPass({
+		uniforms: dotScreenUniforms,
+		vertexShader: dotScreenShader.vertexShader,
+		fragmentShader: dotScreenShader.fragmentShader,
+		defines: {
+			RINGS: shaderSettings.rings,
+			SAMPLES: shaderSettings.samples
+		}
+	});
+    // const kaleidoPass = new ShaderPass(KaleidoShader);
+    // kaleidoPass.uniforms['sides'].value = 6;
+    // kaleidoPass.uniforms['angle'].value = Math.PI / 4;
 
 
 	// Add RGB Shift effect
@@ -2683,7 +2900,7 @@ renderer.setClearColor(0xffffff, 1);
 
 	// Film pass (grain/scanlines), initially disabled
 	filmPass = new FilmPass(0.0, 0.0, 2048, false);
-	filmPass.enabled = false;
+	filmPass.enabled = true;
 
 	// Halftone pass (dots), initially disabled
 	halftonePass = new HalftonePass(window.innerWidth, window.innerHeight, {
@@ -2702,30 +2919,39 @@ renderer.setClearColor(0xffffff, 1);
 	halftonePass.enabled = false;
 
 	// Dot screen pass, initially disabled
-	dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 2.0);
+	dotPass = new DotScreenPass(new Vector2(0, 0), 10.0, 5.0);
 	dotPass.enabled = false;
 
 	// Color-preserving Dot pass (disabled by default)
 	dotColorPass = new ShaderPass(DotColorShader);
 	dotColorPass.enabled = false;
 
-	// Afterimage (motion blur) pass, initially disabled; default damp 0.94
-	afterimagePass = new AfterimagePass(0.94);
-	afterimagePass.enabled = false;
+	// Afterimage (motion blur) pass, initially disabled; default damp 0.54
+	afterimagePass = new AfterimagePass(0.54);
+	afterimagePass.damp = 0.54;
+	afterimagePass.enabled = true;
 
 	// Initialize bokeh render targets
 	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
 	rtTextureColor = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
 
-	// Set bokeh pass uniforms
+    // effect = new AsciiEffect( renderer, ' .:-+*=%@#', { invert: true } );
+    // effect.setSize( window.innerWidth, window.innerHeight );
+    // effect.domElement.style.color = 'white';
+    // effect.domElement.style.backgroundColor = 'black';
+    // asciiEnabled = true
+
+    // document.body.appendChild( effect.domElement );
+
+
+    // Set bokeh pass uniforms
 	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
 	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
 
-	composer.addPass(rgbShiftPass);
 	// Hue/Saturation pass for palette toggles
 	hueSatPass = new ShaderPass(HueSaturationShader);
 	hueSatPass.enabled = false;
-	composer.addPass(hueSatPass);
+
 	// Brightness/Contrast pass for final grading
 	brightnessPass = new ShaderPass(BrightnessContrastShader);
 	brightnessPass.enabled = false;
@@ -2733,11 +2959,12 @@ renderer.setClearColor(0xffffff, 1);
 		brightnessPass.uniforms['brightness'].value = 0.0;
 		brightnessPass.uniforms['contrast'].value = 0.0;
 	}
-	// composer.addPass(brightnessPass);
-	// Mirror pass (screen-space flips)
+
+
+    // Mirror pass (screen-space flips)
 	mirrorPass = new ShaderPass(MirrorAxisShader);
-	mirrorPass.enabled = false;
-	composer.addPass(mirrorPass);
+	mirrorPass.enabled = true;
+
 	// Vignette pass (disabled by default)
 	vignettePass = new ShaderPass(VignetteShader);
 	vignettePass.enabled = false;
@@ -2745,33 +2972,24 @@ renderer.setClearColor(0xffffff, 1);
 		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
 		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
 	}
-	composer.addPass(vignettePass);
+
+
+
 
 	// Third-row exclusive passes
 	// Bloom
-	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
-	bloomPass.enabled = false;
-	composer.addPass(bloomPass);
-	// SAO (ambient occlusion)
-	saoPass = new SAOPass(scene, camera, false, true);
-	saoPass.enabled = false;
-	if (saoPass.params) {
-		saoPass.params.saoBias = 0.5;
-		saoPass.params.saoIntensity = 0.015;
-		saoPass.params.saoScale = 1.0;
-		saoPass.params.saoKernelRadius = 16;
-		saoPass.params.saoMinResolution = 0;
-	}
-	composer.addPass(saoPass);
+	bloomPass = new BloomPass(0.1, 25, 4.0, 256);
+	bloomPass.enabled = true;
+
+
+
+
+
+
 	// CubeTexture pass (only effective if a cube background exists)
 	cubeTexturePass = new CubeTexturePass(camera, scene);
 	cubeTexturePass.enabled = false;
-	composer.addPass(cubeTexturePass);
-	composer.addPass(filmPass);
-	composer.addPass(halftonePass);
-	composer.addPass(dotColorPass);
-	composer.addPass(afterimagePass);
-	composer.addPass(bokehPass);
+
 
 	// Create ASCII pass
 	const asciiShader = {
@@ -2780,8 +2998,8 @@ renderer.setClearColor(0xffffff, 1);
 			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
 			'uFontSize': { value: 8.0 },
 			'uCharacters': { value: ' .:-=+*#%@' },
-			'uHueRandomness': { value: 0.0 },
-			'uSamplingMode': { value: 0 } // 0: simple, 1: accurate
+			'uHueRandomness': { value: 0.1 },
+			'uSamplingMode': { value: 1 } // 0: simple, 1: accurate
 		},
 		vertexShader: `
 			varying vec2 vUv;
@@ -2897,14 +3115,14 @@ renderer.setClearColor(0xffffff, 1);
 		`
 	};
 
-	asciiPass = new ShaderPass(asciiShader);
-	asciiPass.enabled = false; // Start disabled
-	composer.addPass(asciiPass);
+	// asciiPass = new ShaderPass(AsciiShader);
+	// asciiPass.enabled = true; // Start disabled
+
 
 	// Create blur pass for really blurry morphing
 	blurPass = new ShaderPass(blurShader);
 	blurPass.enabled = false; // Start disabled
-	composer.addPass(blurPass);
+
 
 	// Create vignette pass for V key
 	const vignetteShader = {
@@ -2938,7 +3156,8 @@ renderer.setClearColor(0xffffff, 1);
 
 	vignettePass = new ShaderPass(vignetteShader);
 	vignettePass.enabled = false;
-	composer.addPass(vignettePass);
+
+
 
 	// Create color inversion pass for C key
 	const invertShader = {
@@ -2966,9 +3185,7 @@ renderer.setClearColor(0xffffff, 1);
 		`
 	};
 
-	invertPass = new ShaderPass(invertShader);
-	invertPass.enabled = false;
-	composer.addPass(invertPass);
+
 
 	// Create pixelation pass for X key
 	const pixelateShader = {
@@ -3000,11 +3217,126 @@ renderer.setClearColor(0xffffff, 1);
 
 	pixelatePass = new ShaderPass(pixelateShader);
 	pixelatePass.enabled = false;
-	composer.addPass(pixelatePass);
 
-	// Setup GUI controls for bokeh effect
+
+
+    composer.addPass( renderPass );
+    // composer.addPass( unrealBloomPass );
+
+    composer.addPass(blurPass);
+
+    composer.addPass(dotScreenPass);
+
+    composer.addPass(rgbShiftPass);
+    // composer.addPass(mirrorPass);
+
+    // composer.addPass(vignettePass);
+
+    // composer.addPass(bloomPass);
+    // composer.addPass(cubeTexturePass);
+    composer.addPass(filmPass);
+    // composer.addPass(dotColorPass);
+    composer.addPass(afterimagePass);
+
+    // composer.addPass(asciiPass);
+    // composer.addPass(kaleidoPass);
+
+    composer.addPass(halftonePass);
+    // composer.addPass(bokehPass);
+
+    // composer.addPass(vignettePass);
+
+    // composer.addPass(invertPass);
+
+
+    const ColorShiftShader = {
+        uniforms: {
+            tDiffuse: { value: null },
+            shift: { value: new THREE.Vector3(0.05, 0.0, 0.0) } // shift R, G, B
+        },
+        vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+        fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec3 shift;
+    varying vec2 vUv;
+    void main() {
+      vec2 uv = vUv;
+      vec4 color;
+      color.r = texture2D(tDiffuse, uv + shift.xy).r;
+      color.g = texture2D(tDiffuse, uv + shift.yz).g;
+      color.b = texture2D(tDiffuse, uv + shift.zx).b;
+      color.a = 1.0;
+      gl_FragColor = color;
+    }
+  `
+    };
+    const colorShiftPass = new ShaderPass(ColorShiftShader);
+    composer.addPass(colorShiftPass);
+    colorShiftPass.uniforms.shift.value.set(0.01, 0.005, -0.001);
+
+    const HueLuminosityShader = {
+        uniforms: {
+            tDiffuse: { value: null },
+            hue: { value: -0.6 },         // range: -1.0 to 1.0
+            luminosity: { value: 0.6 }   // range: -1.0 to 1.0
+        },
+        vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+        fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float hue;
+    uniform float luminosity;
+    varying vec2 vUv;
+
+    vec3 rgb2hsv(vec3 c) {
+      vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+      vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+      vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+      float d = q.x - min(q.w, q.y);
+      float e = 1.0e-10;
+      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+    }
+
+    vec3 hsv2rgb(vec3 c) {
+      vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+      return c.z * mix(vec3(1.0), rgb, c.y);
+    }
+
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      vec3 hsv = rgb2hsv(color.rgb);
+      hsv.x = mod(hsv.x + hue, 1.0);
+      hsv.z = clamp(hsv.z + luminosity, 0.0, 1.0);
+      gl_FragColor = vec4(hsv2rgb(hsv), color.a);
+    }
+  `
+    };
+    const hueLumPass = new ShaderPass(HueLuminosityShader);
+    hueLumPass.uniforms.hue.value = 0.2;         // shift hue
+    hueLumPass.uniforms.luminosity.value = 0.1;  // brighten
+    composer.addPass(hueSatPass);
+    composer.addPass(brightnessPass)
+    composer.addPass(hueLumPass);
+;
+
+
+    composer.addPass( outputPass );
+
+    // composer.addPass(pixelatePass);
+
+    // Setup GUI controls for bokeh effect
 	setupBokehGUI();
-
 	// Setup GUI controls for halftone blending
 	setupHalftoneGUI();
 
@@ -3025,11 +3357,31 @@ renderer.setClearColor(0xffffff, 1);
 	// Add mouse interaction for bokeh focus
 	canvas.addEventListener('pointermove', onPointerMove);
 
-	// canvas.addEventListener('mousemove', onMouseMove, false);
+
+
+
+
+
+    // canvas.addEventListener('mousemove', onMouseMove, false);
     console.log("Gamepad:", navigator.getGamepads()[0]);
 
 	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
-	controls = new OrbitControls(camera, renderer.domElement);
+
+    // if (asciiEnabled === true) {
+    //     effect.domElement.style.block = 'none';
+    //     effect.domElement.style.position = 'absolute';
+    //     effect.domElement.style.top = '0';
+    //     effect.domElement.style.left = '0';
+    //     effect.domElement.style.zIndex = '1'; // or higher if needed
+    //
+    //     controls = new OrbitControls(camera, effect.domElement);
+    // } else {
+    //     effect.domElement.style.display = 'none';
+    //     effect.domElement.style.zIndex = '-1'; // or higher if needed
+    //     controls = new OrbitControls(camera, renderer.domElement);
+    // }
+
+    controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true; // Restore damping for smooth mouse controls
 	controls.enablePan = true; // Enable right-click panning to move objects/camera
 	controls.dampingFactor = 0.25;
@@ -3082,29 +3434,38 @@ renderer.setClearColor(0xffffff, 1);
 
 
     const loader = new FontLoader();
-    loader.load('/fonts/helvetiker_regular.typeface.json', function (font) {
-        const textGeo = new TextGeometry('your place\n your time', {
+    loader.load('public/assets/Consolas_Regular.json', function (font) {
+        const textGeo = new TextGeometry(' ', {
             font: font,
-            size: 115,
-            height: 222,
+            size: 0.6,
+            height: 0.1,
             curveSegments: 12,
             bevelEnabled: true,
-            bevelThickness: 0.5,
-            bevelSize: 0.3,
+            bevelThickness: 0,
+            depth: 0.01,
+            bevelSize: 0,
             bevelSegments: 3
         });
 
-        const textMaterial = new MeshStandardMaterial({ color: 0x5555ff });
+        const textMaterial = new MeshStandardMaterial({ color: 0xffffff });
         const textMesh = new Mesh(textGeo, textMaterial);
-        textMesh.position.set(0, 0, 0);
+        textMesh.position.set(2, 0.48, 0.7);
         scene.add(textMesh);
     });
+
+
+
+
+
+
+
 
     render();
 
 	// Audio UI (small button top-left)
 	createAudioUI();
 	setupKeyboardControls();
+
 
     // Helper globals
     window.headerHidden = true;
@@ -3256,7 +3617,7 @@ function handleGamepadInput() {
                 }
 
                 // Unique color mapping from (lx, ly): hue from angle, saturation from radius, with audio wobble
-                const r = Math.min(1, Math.sqrt(lx * lx + ly * ly));
+                const r = Math.min(0.1, Math.sqrt(lx * lx + ly * ly));
                 const ang = Math.atan2(ly, lx);
                 let hue = ang / Math.PI; // -1..1
                 const audioAmt = (window.audioModulationEnabled && audioInitialized) ? Math.max(0, Math.min(1, window.audioLevel || 0)) : 0.0;
@@ -3265,44 +3626,40 @@ function handleGamepadInput() {
                 hue = Math.max(-1.0, Math.min(1.0, hue - wobble));
                 let sat = Math.max(0.0, Math.min(0.4, r * (0.25 + 0.25 * audioAmt)));
                 hueSatPass.enabled = true;
-                if (hueSatPass && hueSatPass.uniforms) {
-                    hueSatPass.enabled = true;
-                    hueSatPass.uniforms['hue'].value =-hue;
-                    hueSatPass.uniforms['saturation'].value = sat;
-                }
-
-
-
-
+                // if (hueSatPass && hueSatPass.uniforms) {
+                //     hueSatPass.enabled = true;
+                //     hueSatPass.uniforms['hue'].value =-hue;
+                //     hueSatPass.uniforms['saturation'].value = sat;
+                // }
 
                 halftonePass.enabled = true;
                 if (halftonePass && halftonePass.uniforms) {
                     halftonePass.enabled = true;
-                    halftonePass.uniforms['blendingMode'].value = currentCombo.shaderMode;
-                    halftonePass.uniforms['blending'].value = ly;
+                    // halftonePass.uniforms['blendingMode'].value = currentCombo.shaderMode;
+                    // halftonePass.uniforms['blending'].value = ly;
 
                     // Control radius via left stick X (lx)
-                    const radiusValue = Math.max(1, Math.abs(lx) * 20.0); // 1 to 20.0 based on |lx|
-                    halftonePass.uniforms['radius'].value = 12*lx;
+                    // const radiusValue = Math.max(1, Math.abs(lx) * 20.0); // 1 to 20.0 based on |lx|
+                    // halftonePass.uniforms['radius'].value = 12*lx;
                         syncHalftoneGUI()
                     // Update GUI radius controller to reflect the change
-                    if (halftoneGUI && halftoneGUI.controllers) {
-                        halftoneGUI.controllers.forEach(controller => {
-                            if (controller.property === 'radius') {
-                                controller.setValue(radiusValue);
-                            }
-                        });
-                    }
+                    // if (halftoneGUI && halftoneGUI.controllers) {
+                    //     halftoneGUI.controllers.forEach(controller => {
+                    //         if (controller.property === 'radius') {
+                    //             controller.setValue(radiusValue);
+                    //         }
+                    //     });
+                    // }
                 }
                 if (rgbShiftPass && rgbShiftPass.uniforms) {
-					const amt = 0.02 + r * 0.06;
+					const amt = 0.002 + r * 0.006;
                     rgbShiftPass.enabled = true;
 					// base amount
 					rgbShiftPass.uniforms['amount'].value = amt;
 					if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = amt;
 					// add huge shift near edge without altering previous logic
-					const huge = Math.max(0, r - 0.7) * 0.6; // ramps up strongly from 0.7..1.0
-					const newAmt = Math.min(0.6, (rgbShiftPass.uniforms['amount'].value || amt) + huge);
+					const huge = Math.max(0, r - 0.007) * 0.06; // ramps up strongly from 0.7..1.0
+					const newAmt = Math.min(0.06, (rgbShiftPass.uniforms['amount'].value || amt) + huge);
 					rgbShiftPass.uniforms['amount'].value = newAmt;
 					if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = newAmt;
                     rgbShiftPass.uniforms['angle'].value = ang;
@@ -3397,7 +3754,7 @@ function handleGamepadInput() {
     } else {
         // console.log('No gamepad detected');
         // Reset renderer clear color when no gamepad
-            // renderer.setClearColor(0x000000, 1); // Green tint when moving
+            renderer.setClearColor(0x000000, 1); // Green tint when moving
     }
     } catch (error) {
         // Silently handle gamepad errors to prevent console spam
@@ -3563,12 +3920,12 @@ function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
     // window.generatedLines = group;
     // parent.add(group);
 
-    // Parameters
-    const recursion = 1;
-    const subdivisions = 5;
-    const lineCount = 4; // reduced ~3x
-    const spread = 0.5;    // spacing between lines
-    const kaleidoscope = true;
+    // // Parameters
+    // const recursion = 1;
+    // const subdivisions = 5;
+    // const lineCount = 4; // reduced ~3x
+    // const spread = 0.5;    // spacing between lines
+    // const kaleidoscope = true;
 
     // Generate base Hilbert curve with randomness
     // const basePoints = GeometryUtils.hilbert3D(new Vector3(0, 0, 0), 25.0, recursion, 0, 1, 2, 3, 4, 5, 6, 7);
@@ -3592,7 +3949,7 @@ function generateLinesSetA(color = 0xffffff, color2 = 0xff00ff) {
 
 
     // Create base geometry
-    const geometrySpline = new BufferGeometry().setFromPoints(samples);
+    // const geometrySpline = new BufferGeometry().setFromPoints(samples);
     // const baseMaterial = new LineDashedMaterial({
     //     scale: 2,
     //     color: color,
@@ -3741,7 +4098,7 @@ function disableBokehFlash() {
 }
 
 function applyShaderToScene(shaderSource) {
-    // Replace this with your actual shader application logic
+    // Replace this with  actual shader application logic
     const material = new ShaderMaterial({
         vertexShader: shaderSource.vertex,
         fragmentShader: shaderSource.fragment,
@@ -3820,17 +4177,14 @@ function handleGamepadTriggers(gamepad) {
             if (filmPass && filmPass.uniforms) {
                 filmPass.enabled = true;
                 // Map l2 to noise intensity 0..0.8 and subtle scanlines 0..0.15
-                filmPass.uniforms['nIntensity'].value = 1.8 * l2;
-                filmPass.uniforms['sIntensity'].value = 1.15 * l2;
-                filmPass.uniforms['sCount'].value = 1024 + Math.floor(l2 * 3072);
-                filmPass.uniforms['grayscale'].value = false;
+                filmPass.uniforms.intensity.value = 1.8 * l2;
             }
 
             // Add DotScreen trail flavor on L2 as well
             if (dotPass && dotPass.uniforms) {
                 dotPass.enabled = true;
                 dotPass.uniforms['angle'].value = l2 * Math.PI; // 0..PI
-                dotPass.uniforms['scale'].value = Math.max(10.2, 1.0 - l2 * 0.8); // 1..0.2
+                dotPass.uniforms['scale'].value = Math.max(0.2, 1.0 - l2 * 0.8); // 1..0.2
             }
             // RGB shift
             if (rgbShiftPass) {
@@ -3844,7 +4198,7 @@ function handleGamepadTriggers(gamepad) {
             // Trails: strengthen Afterimage "motion blur" with L2
             if (afterimagePass && afterimagePass.uniforms) {
                 afterimagePass.enabled = true;
-                const base = 0.94;
+                const base = 0.54;
                 afterimagePass.uniforms['damp'].value = Math.max(0.6, base - l2 * 0.5);
             }
             // Bokeh focal depth 40..50
@@ -3856,7 +4210,7 @@ function handleGamepadTriggers(gamepad) {
             // Edge-trigger fractal aberration on L2 press-in
             if (!window.fractalL2Active && l2 > 0.2) {
                 window.fractalL2Active = true;
-                fractalizeAberration(6, 55);
+                fractalizeAberration(1, 2);
             }
 console.log ('L2', l2)
             // Hard press triggers fast 180° rotation (counter-clockwise), with blur pulse
@@ -3867,9 +4221,9 @@ console.log ('L2', l2)
                     afterimagePass.enabled = true;
                     const prev = afterimagePass.uniforms['damp'].value;
                     afterimagePass.uniforms['damp'].value = 0.85;
-                    setTimeout(() => { try { afterimagePass.uniforms['damp'].value = 0.94; } catch(e){} }, 500);
+                    setTimeout(() => { try { afterimagePass.uniforms['damp'].value = 0.54; } catch(e){} }, 500);
                 }
-                spinCamera180(false, 400, 1);
+                spinCamera180(false, 6000, 1);
             }
         } else {
             if (filmPass) filmPass.enabled = false;
@@ -3976,7 +4330,7 @@ function smoothRandomizeAllParams(durationMs = 2000) {
         const targetDotScreen = dotPass ? {
             enabled: rBool(0.7),
             angle: rIn(0, Math.PI),
-            scale: rIn(0.2, 1.0)
+            scale: rIn(0.2, 0.2)
         } : null;
 
         const targetHalftone = halftonePass ? {
@@ -4002,13 +4356,6 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             darkness: rIn(0.8, 2.0)
         } : null;
 
-        const targetSAO = saoPass ? {
-            enabled: rBool(0.5),
-            saoBias: rIn(0.0, 1.0),
-            saoIntensity: rIn(0.0, 0.05),
-            saoScale: rIn(0.5, 2.0),
-            saoKernelRadius: Math.floor(rIn(8, 32))
-        } : null;
 
         const targetBloom = bloomPass ? {
             enabled: rBool(0.5)
@@ -4038,9 +4385,7 @@ function smoothRandomizeAllParams(durationMs = 2000) {
         } : null;
 
         const currentFilm = filmPass ? {
-            nIntensity: filmPass.uniforms['nIntensity'].value,
-            sIntensity: filmPass.uniforms['sIntensity'].value,
-            sCount: filmPass.uniforms['sCount'].value
+            nIntensity: filmPass.uniforms.intensity.value,
         } : null;
 
         const currentAfterimage = afterimagePass ? {
@@ -4052,12 +4397,6 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             darkness: vignettePass.uniforms['darkness'].value
         } : null;
 
-        const currentSAO = saoPass ? {
-            saoBias: saoPass.params.saoBias,
-            saoIntensity: saoPass.params.saoIntensity,
-            saoScale: saoPass.params.saoScale,
-            saoKernelRadius: saoPass.params.saoKernelRadius
-        } : null;
 
         // Start tweening
         const startTime = Date.now();
@@ -4133,9 +4472,7 @@ function smoothRandomizeAllParams(durationMs = 2000) {
                 .easing(TWEEN.Easing.Quadratic.InOut)
                 .onUpdate(function() {
                     if (filmPass && filmPass.uniforms) {
-                        filmPass.uniforms['nIntensity'].value = this.nIntensity;
-                        filmPass.uniforms['sIntensity'].value = this.sIntensity;
-                        filmPass.uniforms['sCount'].value = Math.floor(this.sCount);
+                        filmPass.uniforms.intensity.value = this.nIntensity;
                     }
                 })
                 .start();
@@ -4166,20 +4503,7 @@ function smoothRandomizeAllParams(durationMs = 2000) {
                 .start();
         }
 
-        if (currentSAO && targetSAO) {
-            new TWEEN.Tween(currentSAO)
-                .to(targetSAO, durationMs)
-                .easing(TWEEN.Easing.Quadratic.InOut)
-                .onUpdate(function() {
-                    if (saoPass && saoPass.params) {
-                        saoPass.params.saoBias = this.saoBias;
-                        saoPass.params.saoIntensity = this.saoIntensity;
-                        saoPass.params.saoScale = this.saoScale;
-                        saoPass.params.saoKernelRadius = Math.floor(this.saoKernelRadius);
-                    }
-                })
-                .start();
-        }
+
 
         // Handle boolean toggles and bokeh
         setTimeout(() => {
@@ -4188,7 +4512,6 @@ function smoothRandomizeAllParams(durationMs = 2000) {
             if (targetFilm) filmPass.enabled = targetFilm.enabled;
             if (targetAfterimage) afterimagePass.enabled = targetAfterimage.enabled;
             if (targetVignette) vignettePass.enabled = targetVignette.enabled;
-            if (targetSAO) saoPass.enabled = targetSAO.enabled;
             if (targetBloom) bloomPass.enabled = targetBloom.enabled;
 
             // Update HSV mode
@@ -4674,7 +4997,7 @@ function render(time) {
 		}
 
         let uniforms = [];
-        uniforms.push({ name: 'audioLevel', value: (audioLevel || 0.0), type: 'float' });
+        uniforms.push({ name: 'audioLevel', value: (window.audioLevel || 0.0), type: 'float' });
         uniforms.push({ name: 'time', value: currTime, type: 'float' });
         uniforms.push({ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
 		if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
@@ -4802,26 +5125,10 @@ function render(time) {
     // Rotate selected sculpture on X when enabled (override)
     if (window.rotateXEnabled) {
         // Autofix: if no selectedObject, try to resolve it
-        if (!store.state.selectedObject) {
-            try {
-                const curr = store.state.currSculpture;
-                if (curr && curr.id) {
-                    const match = store.state.objectsToUpdate.find(o => o && o.mesh && o.mesh.name === curr.id);
-                    if (match && match.mesh) store.state.selectedObject = match.mesh;
-                }
-                if (!store.state.selectedObject && store.state.objectsToUpdate.length > 0) {
-                    store.state.selectedObject = store.state.objectsToUpdate[0].mesh;
-                }
-                if (!store.state.selectedObject && window.scene) {
-                    const meshes = window.scene.children.filter(obj => obj.type === 'Mesh');
-                    if (meshes.length > 0) store.state.selectedObject = meshes[0];
-                }
-            } catch(e) {}
-        }
-        if (store.state.selectedObject) {
-            const delta = 0.1 * (typeof getAudioModulation === 'function' ? getAudioModulation() : 1.0);
-            window.rotXAngle += delta;
-            store.state.selectedObject.rotation.x = window.rotXAngle;
+        // spinCamera180(false, 20000, 110.2)
+        if (store.state.selectedSculpture && store.state.selectedObject) {
+            store.state.selectedObject.rotation.set(0, 20, 0);
+            console.log('🎮 Reset object rotation');
         }
     }
 
@@ -4852,8 +5159,9 @@ function render(time) {
         //     requestAnimationFrame( animate );
         // }, 1000 / 30 );
 
-		renderer.render(scene, camera);
 
+
+		renderer.render(scene, camera);
 		// Render depth into texture
 		scene.overrideMaterial = materialDepth;
 		renderer.setRenderTarget(rtTextureDepth);
@@ -5162,4 +5470,7 @@ function onCanvasResize() {
 		windowHalfY = height / 2;
 	}
 }
+
+
+
 window.onCanvasResize = onCanvasResize;
