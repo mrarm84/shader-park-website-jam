@@ -1,5 +1,5 @@
 import New from '../components/New.vue';
-// import NewToy from '../components/NewToy.vue';
+import NewToy from '../components/NewToy.vue';
 // import Game from '../components/Game.vue';
 
 
@@ -66,29 +66,29 @@ export const routes = [
       selectedSculpture: true
     }
   },
-  // {
-  //   path: '/newtoy/:type',
-  //   name: 'newtoy',
-  //   component: NewToy,
-  //   meta: {
-  //     title: 'New Sculpture',
-  //     selectedSculpture: true
-  //   }
-  // },
-  // {
-  //   path: '/newtoy',
-  //   name: 'newtoy',
-  //   component: NewToy,
-  //   props: (route) => ({
-  //     hideEditor: false,
-  //     hidePedestal: true,
-  //     clickEnabled: false
-  //   }),
-  //   meta: {
-  //     title: 'New toy',
-  //     selectedSculpture: true
-  //   }
-  // },
+  {
+    path: '/newtoy/:type',
+    name: 'newtoy',
+    component: NewToy,
+    meta: {
+      title: 'New Sculpture',
+      selectedSculpture: true
+    }
+  },
+  {
+    path: '/newtoy',
+    name: 'newtoy',
+    component: NewToy,
+    props: (route) => ({
+      hideEditor: false,
+      hidePedestal: true,
+      clickEnabled: false
+    }),
+    meta: {
+      title: 'New toy',
+      selectedSculpture: true
+    }
+  },
   // {
   //   path: '/game/:type',
   //   name: 'game',

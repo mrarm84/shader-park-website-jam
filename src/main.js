@@ -5,7 +5,7 @@ import 'firebase/compat/auth';
 import 'firebase/compat/database';
 import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
-import * as THREE from 'three/webgpu';
+import * as THREE from 'three';
 
 import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
 import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'three/tsl';
@@ -41,6 +41,7 @@ import { BloomPass } from 'three/addons/postprocessing/BloomPass.js';
 import { SAOPass } from 'three/addons/postprocessing/SAOPass.js';
 import { CubeTexturePass } from 'three/addons/postprocessing/CubeTexturePass.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 // import './registerServiceWorker';
 
@@ -79,6 +80,13 @@ appCheck.activate('6LdOL7keAAAAADahgNg_e2DFCG52EFLuVVN0OTmV',true)
 
 const router = new VueRouter({ routes: routes, mode: 'history', base: process.env.BASE_URL});
 let selected;
+
+let meshes = [];
+let lensOptions = {
+    roughness: 0,
+    transmission: 1,
+    thickness: 2
+};
 
 let animationPaused = false;
 const virtualCursor = {
@@ -207,6 +215,7 @@ firebase.auth().onAuthStateChanged(function(user) {
 				let pedestalWasVisible = false;
 				if (state.selectedSculpture && state.selectedSculpture.sculpture && state.selectedSculpture.sculpture.pedestal) {
 					pedestal = state.selectedSculpture.sculpture.pedestal;
+
 					pedestalWasVisible = pedestal.visible;
 					pedestal.visible = false;
 
@@ -2909,7 +2918,7 @@ function init() {
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearAlpha(1);
-renderer.setClearColor(0xffffff, 1);
+renderer.setClearColor(0x1f1e1c, 1);
 	canvasContainer.appendChild(renderer.domElement);
 
 	// Auto-focus canvas by simulating a click shortly after load
@@ -3056,12 +3065,80 @@ renderer.setClearColor(0xffffff, 1);
 	// CubeTexture pass (only effective if a cube background exists)
 	cubeTexturePass = new CubeTexturePass(camera, scene);
 	cubeTexturePass.enabled = false;
-	composer.addPass(cubeTexturePass);
-	composer.addPass(filmPass);
-	composer.addPass(halftonePass);
-	composer.addPass(dotColorPass);
-	composer.addPass(afterimagePass);
-	composer.addPass(bokehPass);
+	//composer.addPass(cubeTexturePass);
+	//composer.addPass(filmPass);
+	//composer.addPass(halftonePass);
+	//composer.addPass(dotColorPass);
+	//composer.addPass(afterimagePass);
+	// //composer.addPass(bokehPass);
+
+
+    const hdrEquirect = new RGBELoader().load(
+        "public/assets//empty_warehouse_01_2k.hdr",
+        () => {
+            hdrEquirect.mapping = THREE.EquirectangularReflectionMapping;
+        }
+    );
+
+
+    const textureLoader = new THREE.TextureLoader();
+    const bgTexture = textureLoader.load("public/assets/stained-glass.jpg");
+    const bgGeometry = new THREE.PlaneGeometry(19.2, 14.4);
+    const bgMaterial = new THREE.MeshBasicMaterial({ map: bgTexture });
+    const bgMesh = new THREE.Mesh(bgGeometry, bgMaterial);
+    bgMesh.position.set(0, 0, -1);
+    scene.add(bgMesh);
+
+    const material1 = new THREE.MeshPhysicalMaterial({
+        roughness: lensOptions.roughness,
+        transmission: lensOptions.transmission,
+        thickness: lensOptions.thickness
+    });
+    const spGeom = new THREE.SphereGeometry(3, 32, 32);
+    const sp1 = new THREE.Mesh(spGeom, material1);
+    sp1.position.set(0, 0, 3);
+    scene.add(sp1);
+    meshes.push(sp1);
+
+    const material2 = new THREE.MeshPhysicalMaterial({
+        roughness: lensOptions.roughness,
+        transmission: lensOptions.transmission,
+        thickness: lensOptions.thickness,
+        map: sp1
+    });
+
+
+
+    // const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+    // const feedbackMaterial = new THREE.MeshBasicMaterial({ map: renderTarget.texture });
+    // const feedbackPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 3), feedbackMaterial);
+    // feedbackPlane.position.set(0, 0, 9);
+    // scene.add(feedbackPlane);
+
+
+    const spGeom2 = new THREE.SphereGeometry(3, 32, 32);
+    const sp2 = new THREE.Mesh(spGeom, material2);
+    sp2.position.set(0, 0, 20);
+    scene.add(sp2);
+    meshes.push(sp2);
+
+    let dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    scene.add(dirLight);
+    const guiLens = new GUI();
+
+    guiLens.add(lensOptions, "transmission", 0, 1, 0.01).onChange((val) => {
+        material1.transmission = val;
+    });
+
+    guiLens.add(lensOptions, "thickness", 0, 5, 0.1).onChange((val) => {
+        material1.thickness = val;
+    });
+
+    guiLens.add(lensOptions, "roughness", 0, 1, 0.01).onChange((val) => {
+        material1.roughness = val;
+    });
+
+
 
 	// Create ASCII pass
 	const asciiShader = {
@@ -3189,12 +3266,12 @@ renderer.setClearColor(0xffffff, 1);
 
 	asciiPass = new ShaderPass(asciiShader);
 	asciiPass.enabled = false; // Start disabled
-	composer.addPass(asciiPass);
+	//composer.addPass(asciiPass);
 
 	// Create blur pass for really blurry morphing
 	blurPass = new ShaderPass(blurShader);
 	blurPass.enabled = false; // Start disabled
-	composer.addPass(blurPass);
+	//composer.addPass(blurPass);
 
 	// Create vignette pass for V key
 	const vignetteShader = {
@@ -3228,7 +3305,7 @@ renderer.setClearColor(0xffffff, 1);
 
 	vignettePass = new ShaderPass(vignetteShader);
 	vignettePass.enabled = false;
-	composer.addPass(vignettePass);
+	//composer.addPass(vignettePass);
 
 	// Create color inversion pass for C key
 	const invertShader = {
@@ -3302,7 +3379,42 @@ renderer.setClearColor(0xffffff, 1);
 	setupAsciiGUI();
 
 
-	// Apply initial background according to bgMode
+// --- 1. Create a render target ---
+    const renderTargetFb = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        format: THREE.RGBAFormat,
+    });
+
+// --- 2. Plane that displays the render texture ---
+    const feedbackMaterialFb = new THREE.MeshBasicMaterial({ map: renderTargetFb.texture });
+    const planeFb = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), feedbackMaterialFb);
+    planeFb.position.set(0, 0, 9);
+    scene.add(planeFb)
+
+
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+        video.srcObject = stream;
+    });
+
+    // Texture from webcam
+    const videoTexture = new THREE.VideoTexture(video);
+    videoTexture.minFilter = THREE.LinearFilter;
+    videoTexture.magFilter = THREE.LinearFilter;
+    videoTexture.format = THREE.RGBFormat;
+
+    // Plane with webcam texture
+    const geometry = new THREE.PlaneGeometry(3.2, 1.8);
+    const material = new THREE.MeshBasicMaterial({ map: videoTexture });
+    const screen = new THREE.Mesh(geometry, material);
+    screen.position.set(0, 0,6);
+    scene.add(screen);
+
+   //     y initial background according to bgMode
 	try { applyBackground(window.bgMode || 1); } catch(e){}
 
 	canvas = document.querySelector('canvas');
@@ -5126,11 +5238,11 @@ function render(time) {
 			effectController.focalDepth = ldistance;
 		}
 
-		renderer.clear();
+		// renderer.clear();
 
 		// Render scene into color texture
-		renderer.setRenderTarget(rtTextureColor);
-		renderer.clear();
+		// renderer.setRenderTarget(rtTextureColor);
+		// renderer.clear();
 
         // fps limit?
         // setTimeout( function() {
@@ -5140,13 +5252,25 @@ function render(time) {
 		renderer.render(scene, camera);
 
 		// Render depth into texture
-		scene.overrideMaterial = materialDepth;
-		renderer.setRenderTarget(rtTextureDepth);
-		renderer.clear();
-		renderer.render(scene, camera);
-		scene.overrideMaterial = null;
+		// scene.overrideMaterial = materialDepth;
+		// renderer.setRenderTarget(rtTextureDepth);
+		// renderer.clear();
+		// renderer.render(scene, camera);
+		// scene.overrideMaterial = null;
 
-		// Apply post-processing with bokeh
+
+        // Render the scene to the render target
+        // renderer.setRenderTarget(renderTarget);
+        // renderer.render(scene, camera);
+        // renderer.setRenderTarget(null); // back to default framebuffer
+        renderer.autoClear = false;
+        renderer.clearColor();
+        renderer.clearDepth();
+        renderer.setRenderTarget(renderTargetFb);
+        renderer.render(scene, camera);
+        renderer.setRenderTarget(null);
+
+        // Apply post-processing with bokeh
 		composer.render();
 	} else {
 		// Normal rendering without bokeh
