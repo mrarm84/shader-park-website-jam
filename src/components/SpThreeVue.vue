@@ -23,7 +23,11 @@ export default {
         clickInterpolation: { type: Number, default: .98 },
         scrollInterpolation: { type: Number, default: .98 },
         shaderParkCode: {type: [Function, String], default: 'sphere(.5);'},
+        shaderParkCodeOld: {type: [Function, String], default: 'sphere(.5);'},
         sculptureParams: {type: Object, default() {
+            return {}
+        }},
+        sculptureOldParams: {type: Object, default() {
             return {}
         }},
         enableZoom: {type: Boolean, default: true}
@@ -125,7 +129,9 @@ export default {
             // }
 
             let mesh = createSculpture(this.shaderParkCode, () => this.sculptureParams );
+            let meshOld = createSculpture(this.shaderParkCode, () => this.sculptureOldParams );
             this.scene.add(mesh);
+            this.scene.add(meshOld);
 
             if(!this.isMobile) {
                 this.controls = new OrbitControls( this.camera, this.renderer.domElement, {
