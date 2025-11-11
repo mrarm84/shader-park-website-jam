@@ -2975,7 +2975,7 @@ renderer.setClearColor(0xffffff, 1);
 		uniforms: {
 			'tDiffuse': { value: null },
 			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uPixelSize': { value: 4.0 }
+			'uPixelSize': { value: 3.0 }
 		},
 		vertexShader: `
 			varying vec2 vUv;
@@ -3000,7 +3000,7 @@ renderer.setClearColor(0xffffff, 1);
 
 	pixelatePass = new ShaderPass(pixelateShader);
 	pixelatePass.enabled = false;
-	composer.addPass(pixelatePass);
+	// composer.addPass(pixelatePass);
 
 	// Setup GUI controls for bokeh effect
 	setupBokehGUI();
@@ -3033,8 +3033,8 @@ renderer.setClearColor(0xffffff, 1);
 	controls.enableDamping = true; // Restore damping for smooth mouse controls
 	controls.enablePan = true; // Enable right-click panning to move objects/camera
 	controls.dampingFactor = 0.25;
-	controls.zoomSpeed = 0.5;
-	controls.rotateSpeed = 0.5;
+	controls.zoomSpeed = 0.1;
+	controls.rotateSpeed = 0.1;
 	controls.keys = {
 		LEFT: 65,
 		UP: 87,
@@ -3228,7 +3228,7 @@ function handleGamepadInput() {
 
             }
 
-            const rotateSpeed = 2.0; // Object rotation speed
+            const rotateSpeed = 0.2; // Object rotation speed
             const moveSpeed = 0.5; // Camera movement speed
 
             // Get current selected object position for rotation center

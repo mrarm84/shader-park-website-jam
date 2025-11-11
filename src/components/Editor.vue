@@ -514,7 +514,7 @@ export default {
           const pattern = /let\s+audioLevel/;
           const pattern2 = /\/\/let\s+audioLevel/;
           if (!pattern.test(processedCode) && !pattern2.test(processedCode)) {
-            processedCode = 'let audioLevel = input(0.5);\n' + processedCode;
+            processedCode = 'let audioLevel = input();\n' + processedCode;
           }
 
 
