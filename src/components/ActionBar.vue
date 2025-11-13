@@ -109,7 +109,7 @@ export default {
             }
         },
         share() {
-            this.$store.commit('displayShareModal', true);
+            if (window.triggerShareEffect) window.triggerShareEffect();
         },
     }
 }

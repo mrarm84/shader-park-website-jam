@@ -13,6 +13,8 @@ import { mapGetters } from 'vuex'
 
 import { Scene, PerspectiveCamera, WebGLRenderer, Color} from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 import { createSculpture, createSculptureWithGeometry } from 'shader-park-core';
 
 export default {
@@ -42,7 +44,16 @@ export default {
                 click: 0.0,
                 hover: 0.0,
                 scroll: 0.0
-            }
+            },
+            model: null,
+            mixer: null,
+            currentSculptureIndex: 0,
+            sculptures: [
+                'sphere(0.5);',
+                'box(0.5);',
+                'torus(0.5);',
+                'cylinder(0.5);'
+            ]
         }
     },
     computed : {
@@ -62,7 +73,10 @@ export default {
             return window.innerWidth < 500;
         },
         currUser () {
-			return this.$store.getters.getUser;
+ 			return this.$store.getters.getUser;
+        },
+        currentShaderCode() {
+            return this.sculptures[this.currentSculptureIndex];
         },
     },
     watch : {
@@ -101,6 +115,13 @@ export default {
         playToggle() {
             this.pause = !this.pause;
         },
+        changeSculpture() {
+            this.currentSculptureIndex = (this.currentSculptureIndex + 1) % this.sculptures.length;
+            // Update the mesh
+            this.scene.remove(this.mesh);
+            this.mesh = createSculpture(this.currentShaderCode, () => this.sculptureParams);
+            this.scene.add(this.mesh);
+        },
         checkIsMobile() {
             return (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
         },
@@ -128,9 +149,9 @@ export default {
             //     this.sculptureParams.time = this.params.time;
             // }
 
-            let mesh = createSculpture(this.shaderParkCode, () => this.sculptureParams );
+            this.mesh = createSculpture(this.currentShaderCode, () => this.sculptureParams );
             let meshOld = createSculpture(this.shaderParkCode, () => this.sculptureOldParams );
-            this.scene.add(mesh);
+            this.scene.add(this.mesh);
             this.scene.add(meshOld);
 
             if(!this.isMobile) {
@@ -155,7 +176,9 @@ export default {
             // console.log('got canvasContainer', canvasContainer)
             canvasContainer.addEventListener('mousedown', () => {
                 // console.log('mouse down')
-                self.state.click = 1.0
+                self.state.click = 1.0;
+                self.changeSculpture();
+                if (window.triggerTouchEffect) window.triggerTouchEffect();
             }, false);
             canvasContainer.addEventListener('mouseup', () => self.state.click = 0.0, false);
             canvasContainer.addEventListener('contextmenu', (e) => {e.preventDefault()}, false);
@@ -179,6 +202,11 @@ export default {
                     }
                 if(!this.pause) {
                     this.sculptureParams.scroll =  this.sculptureParams.scroll*this.scrollInterpolation + window.pageYOffset/window.innerHeight*(1.0-this.scrollInterpolation);
+                }
+
+                // Animate the model if loaded
+                if ( this.model ) {
+                    this.model.rotation.y += 0.003;
                 }
 
                 // this.state.currClick = this.state.currClick*.98 + this.state.click*.02;

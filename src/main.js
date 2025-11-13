@@ -7,7 +7,7 @@ import 'firebase/compat/storage';
 import 'firebase/compat/app-check';
 import * as THREE from 'three';
 
-import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three';
+import { MeshStandardMaterial, Scene, Inspector, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending, SpotLight, AmbientLight, SpotLightHelper, PCFSoftShadowMap } from 'three';
 import { pass, texture, uniform, output, mrt, velocity, uv, screenUV } from 'three/tsl';
 
 // import { MeshStandardMaterial, Scene, Quaternion, WebGLRenderTarget, HalfFloatType , UniformsUtils,ShaderMaterial, Color, PerspectiveCamera, Vector2, Vector3, Raycaster, HemisphereLight, TextureLoader, WebGLRenderer, FrontSide, BackSide, BufferGeometry, Line, LineDashedMaterial, CatmullRomCurve3, Group, Mesh, MeshBasicMaterial, IcosahedronGeometry, AdditiveBlending, SubtractiveBlending, MultiplyBlending } from 'three/webgpu';
@@ -26,6 +26,7 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 import * as GeometryUtils from 'three/addons/utils/GeometryUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
 import { BokehShader, BokehDepthShader } from 'three/addons/shaders/BokehShader2.js';
@@ -34,9 +35,11 @@ import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
 import { HalftonePass } from 'three/addons/postprocessing/HalftonePass.js';
 import { DotScreenPass } from 'three/addons/postprocessing/DotScreenPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
+import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 import { HueSaturationShader } from 'three/addons/shaders/HueSaturationShader.js';
 import { BrightnessContrastShader } from 'three/addons/shaders/BrightnessContrastShader.js';
 import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
+import { ToonShader1, ToonShader2, ToonShaderHatching, ToonShaderDotted } from 'three/addons/shaders/ToonShader.js';
 import { BloomPass } from 'three/addons/postprocessing/BloomPass.js';
 import { SAOPass } from 'three/addons/postprocessing/SAOPass.js';
 import { CubeTexturePass } from 'three/addons/postprocessing/CubeTexturePass.js';
@@ -87,6 +90,20 @@ let lensOptions = {
     transmission: 1,
     thickness: 2
 };
+const paramsIntersect = {
+    clipIntersection: true,
+    planeConstant: 0,
+    showHelpers: false,
+    alphaToCoverage: true,
+};
+
+const clipPlanes = [
+    new THREE.Plane( new THREE.Vector3( 1, 0, 0 ), 0 ),
+    new THREE.Plane( new THREE.Vector3( 0, - 1, 0 ), 0 ),
+    new THREE.Plane( new THREE.Vector3( 0, 0, - 1 ), 0 )
+];
+
+
 
 let animationPaused = false;
 const virtualCursor = {
@@ -172,7 +189,7 @@ router.beforeEach((to, from, next) => {
 	};
 	if (store.state.selectedSculpture) { //fade single sculpture if selected
 		let id = store.state.selectedSculpture.id;
-		transitionSculptureOpacity(id, 0.0, 1000).then(() => {
+		transitionSculptureOpacity(id, 0.0, 3000).then(() => {
 			const nextRouteHasSculptureSelected = to.matched.some(record => record.meta.selectedSculpture);
 			if (!nextRouteHasSculptureSelected) {
 				store.state.selectedSculpture = null;
@@ -254,7 +271,8 @@ firebase.auth().onAuthStateChanged(function(user) {
 // const scene = store.state.scene;
 const scene = new Scene();
 window.scene = scene;
-const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 500);
+const camera = new PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.5, 1000);
+camera.position.z = 2000;
 
 window.camera = camera;
 
@@ -262,6 +280,7 @@ let renderer, controls, mapControls, canvas, canvasContainer, composer, renderPa
 let redLight, blueLight, greenLight, purpleLight, orangeLight;
 let asciiPass, asciiEnabled = false;
 let invertPass, pixelatePass;
+let marchingCubesEffect, marchingMaterials, marchingTime = 0, marchingGui, marchingEffectController;
 
 // Morphing effect variables
 let morphingEffects = {};
@@ -378,7 +397,7 @@ function startBlurryMorph(effectName, targetPass, targetValue, duration = 1500) 
                 // Stage 1: Fade in blur (0-300ms) - creates dreamy entrance
                 if (blurPass) {
                     blurPass.enabled = true;
-                    animateBlur(0, 2.5, 300, () => {
+                    animateBlur(0, 6.5, 3300, () => {
                         currentStage++;
                         executeStage();
                     });
@@ -400,7 +419,7 @@ function startBlurryMorph(effectName, targetPass, targetValue, duration = 1500) 
             case 'fadeOutBlur':
                 // Stage 3: Fade out blur (1200-1500ms) - reveals the final result
                 if (blurPass) {
-                    animateBlur(2.5, 0, 300, () => {
+                    animateBlur(2.5, 5, 3300, () => {
                         blurPass.enabled = false;
                     });
                 }
@@ -535,18 +554,18 @@ const effectController = {
     shaderFocus: false,
 
     fstop: 2.2,
-    maxblur: 1.0,
+    maxblur: 3.5,
 
     showFocus: false,
-    focalDepth: 10.0, // Increased default focal depth for better visibility
+    focalDepth: 180.0, // Increased default focal depth for better visibility
     manualdof: false,
     vignetting: false,
     depthblur: false,
 
     threshold: 0.5,
     gain: 2.0,
-    bias: 0.5,
-    fringe: 10,
+    bias: 2.0,
+    fringe: 30,
 
     focalLength: 35,
     noise: true,
@@ -801,49 +820,49 @@ function setupBokehGUI() {
         bokehPass.material.needsUpdate = true;
     };
 
-    gui = new GUI({
-        autoPlace: false
+    const guiBokeh = new GUI({
+        autoPlace: true
     });
 
-    // Position bokeh GUI to the right of halftone GUI
-    gui.domElement.style.position = 'absolute';
-    gui.domElement.style.top = '350px';
-    gui.domElement.style.left = '1380px'; // Position to the right of halftone GUI
+    // Position bokeh GUI to the right
+    guiBokeh.domElement.style.position = 'absolute';
+    guiBokeh.domElement.style.top = '350px';
+    guiBokeh.domElement.style.right = '10px';
 
-    gui.add(effectController, 'enabled').onChange(matChanger);
-    gui.add(effectController, 'jsDepthCalculation').onChange(matChanger);
-    gui.add(effectController, 'shaderFocus').onChange(matChanger);
-    gui.add(effectController, 'focalDepth', 0.0, 200.0).listen().onChange(matChanger);
+    guiBokeh.add(effectController, 'enabled').onChange(matChanger);
+    guiBokeh.add(effectController, 'jsDepthCalculation').onChange(matChanger);
+    guiBokeh.add(effectController, 'shaderFocus').onChange(matChanger);
+    guiBokeh.add(effectController, 'focalDepth', 0.0, 200.0).listen().onChange(matChanger);
 
-    gui.add(effectController, 'fstop', 0.1, 22, 0.001).onChange(matChanger);
-    gui.add(effectController, 'maxblur', 0.0, 5.0, 0.025).onChange(matChanger);
+    guiBokeh.add(effectController, 'fstop', 0.1, 22, 0.001).onChange(matChanger);
+    guiBokeh.add(effectController, 'maxblur', 0.0, 5.0, 0.025).onChange(matChanger);
 
-    gui.add(effectController, 'showFocus').onChange(matChanger);
-    gui.add(effectController, 'manualdof').onChange(matChanger);
-    gui.add(effectController, 'vignetting').onChange(matChanger);
+    guiBokeh.add(effectController, 'showFocus').onChange(matChanger);
+    guiBokeh.add(effectController, 'manualdof').onChange(matChanger);
+    guiBokeh.add(effectController, 'vignetting').onChange(matChanger);
 
-    gui.add(effectController, 'depthblur').onChange(matChanger);
+    guiBokeh.add(effectController, 'depthblur').onChange(matChanger);
 
-    gui.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
-    gui.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
-    gui.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
-    gui.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
+    guiBokeh.add(effectController, 'threshold', 0, 1, 0.001).onChange(matChanger);
+    guiBokeh.add(effectController, 'gain', 0, 100, 0.001).onChange(matChanger);
+    guiBokeh.add(effectController, 'bias', 0, 3, 0.001).onChange(matChanger);
+    guiBokeh.add(effectController, 'fringe', 0, 30, 0.001).onChange(matChanger);
 
-    gui.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
+    guiBokeh.add(effectController, 'focalLength', 16, 80, 0.001).onChange(matChanger);
 
-    gui.add(effectController, 'noise').onChange(matChanger);
+    guiBokeh.add(effectController, 'noise').onChange(matChanger);
 
-    gui.add(effectController, 'dithering', 0, 0.001, 0.0001).onChange(matChanger);
+    guiBokeh.add(effectController, 'dithering', 0, 0.001, 0.0001).onChange(matChanger);
 
-    gui.add(effectController, 'pentagon').onChange(matChanger);
+    guiBokeh.add(effectController, 'pentagon').onChange(matChanger);
 
-    gui.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
-    gui.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
+    guiBokeh.add(shaderSettings, 'rings', 1, 8).step(1).onChange(shaderUpdate);
+    guiBokeh.add(shaderSettings, 'samples', 1, 13).step(1).onChange(shaderUpdate);
 
     let isDragging = false;
     let offset = { x: 0, y: 0 };
 
-    const guiDom = gui.domElement;
+    const guiDom = guiBokeh.domElement;
 
     guiDom.addEventListener('mousedown', (e) => {
         isDragging = true;
@@ -1065,7 +1084,7 @@ window.audioGain = 2.0; // boost for audioLevel (adjustable)
 window.rotateXEnabled = false; // toggle sculpture rotation on X
 window.rotXAngle = 0.0;       // accumulated X rotation
 window.prevR2Bin = -1;       // discrete bin for R2-driven bokeh randomization
-window.bgMode = 1; // 0=black, 1=white (default), 2=random
+window.bgMode = 0; // 0=black, 1=white (default), 2=random
 // Keyboard state flags
 window.keyboard = {
     pressed: new Set(),
@@ -1452,7 +1471,7 @@ function setHeaderVisible(visible) {
 function applyBackground(mode) {
     try {
         if (!renderer) return;
-        renderer.setClearAlpha(1);
+        renderer.setClearAlpha(0.4);
 
         // Decide color
         let numeric = 0x000000; // default black
@@ -1645,7 +1664,7 @@ function rollCamera(deltaRoll) {
 }
 
 // Fractalize RGB aberration briefly (multi-iteration pulsing of amount/angle)
-function fractalizeAberration(iterations = 5, stepMs = 60) {
+function fractalizeAberration(iterations = 5, stepMs = 60, audioBoost = 1.0) {
     if (!rgbShiftPass || !rgbShiftPass.uniforms) return;
     const baseAmt = params.rsx;
     const baseAng = params.rsy;
@@ -1664,7 +1683,8 @@ function fractalizeAberration(iterations = 5, stepMs = 60) {
             return;
         }
         const scale = Math.pow(0.5, i); // 1, 0.5, 0.25...
-        const amt = baseAmt + baseAmt * 0.6 * scale;
+        const audioFactor = (window.audioModulationEnabled && window.audioLevel) ? (window.audioLevel * audioBoost) : 0.0;
+        const amt = (baseAmt + baseAmt * 0.6 * scale) * (1.0 + audioFactor * 1.0);
         const ang = baseAng + (i * Math.PI / 6); // +30° per step
         try {
             params.rsx = amt;
@@ -1785,7 +1805,9 @@ function handleKeyDown(e) {
                 const now = performance.now();
                 if (!window.keyboard.lastFractalTime || now - window.keyboard.lastFractalTime > 250) {
                     window.keyboard.lastFractalTime = now;
-                    fractalizeAberration(6, 55);
+                    const a = (window.audioModulationEnabled && window.audioLevel) ? window.audioLevel : 0.0;
+                    const audioBoostFactor = 1.0 + Math.min(1.0, a * 3.0); // Boost up to 3x audio influence (results in max 2.0 multiplier on fractal effect)
+                    fractalizeAberration(6, 55, audioBoostFactor);
                 }
             }
             break;
@@ -2178,7 +2200,7 @@ function handleKeyUp(e) {
         case 't':
             if (window.keyboard.holdT && afterimagePass && afterimagePass.uniforms) {
                 window.keyboard.holdT = false;
-                afterimagePass.uniforms['damp'].value = 0.94;
+                afterimagePass.uniforms['damp'].value = 0.97;
                 afterimagePass.enabled = false;
             }
             break;
@@ -2249,7 +2271,7 @@ function applyHeldKeyEffects() {
     }
     if (window.keyboard.holdT && afterimagePass && afterimagePass.uniforms) {
         afterimagePass.enabled = true;
-        afterimagePass.uniforms['damp'].value = 0.94 - 0.12 * a;
+        afterimagePass.uniforms['damp'].value = 0.97 - 0.12 * a;
     }
     if (window.keyboard.holdY && vignettePass && vignettePass.uniforms) {
         vignettePass.enabled = true;
@@ -2639,7 +2661,7 @@ function randomizeAllParams() {
         }
         // Background
         if (rBool(0.6)) {
-            applyBackground(2); // random bg
+            // applyBackground(2); // random bg
         }
         // Bokeh: randomize only if currently enabled; do not force enable to respect bumper-only rule
         try {
@@ -2908,8 +2930,24 @@ function getAudioModulation(multiplier = 0.5, useSin = true) {
     return 1.0 + (osc * audioLevel * multiplier);
 }
 
+function createSpotlight( color ) {
+
+	const newObj = new SpotLight( color, 10 );
+
+	newObj.castShadow = true;
+	newObj.angle = 0.3;
+	newObj.penumbra = 0.2;
+	newObj.decay = 2;
+	newObj.distance = 50;
+
+	return newObj;
+
+}
 
 function init() {
+    const overlay = document.getElementById( 'overlay' );
+    overlay.remove();
+
     // handleGamepadInput()
 	canvasContainer = document.querySelector('.canvas-container');
 	renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', alpha: true});
@@ -2917,8 +2955,12 @@ function init() {
 	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
 	renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearAlpha(1);
-renderer.setClearColor(0x1f1e1c, 1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = PCFSoftShadowMap;
+    renderer.localClippingEnabled = true;
+
+    renderer.setClearAlpha(0.5);
+renderer.setClearColor(0x000000, 0.5);
 	canvasContainer.appendChild(renderer.domElement);
 
 	// Auto-focus canvas by simulating a click shortly after load
@@ -3008,9 +3050,24 @@ renderer.setClearColor(0x1f1e1c, 1);
 	dotColorPass = new ShaderPass(DotColorShader);
 	dotColorPass.enabled = false;
 
-	// Afterimage (motion blur) pass, initially disabled; default damp 0.94
-	afterimagePass = new AfterimagePass(0.94);
+	// Afterimage (motion blur) pass, initially disabled; default damp 0.97
+	afterimagePass = new AfterimagePass(0.97);
 	afterimagePass.enabled = false;
+
+	// Touch effect function
+	window.triggerTouchEffect = () => {
+		// Increase light intensity
+		ambient.intensity = 2;
+		// Temporarily enable and increase afterimage damp
+		const wasEnabled = afterimagePass.enabled;
+		afterimagePass.enabled = true;
+		afterimagePass.damp = 0.99;
+		setTimeout(() => {
+			ambient.intensity = 1;
+			afterimagePass.damp = 0.97;
+			afterimagePass.enabled = wasEnabled;
+		}, 500);
+	};
 
 	// Initialize bokeh render targets
 	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
@@ -3024,7 +3081,6 @@ renderer.setClearColor(0x1f1e1c, 1);
 	// Hue/Saturation pass for palette toggles
 	hueSatPass = new ShaderPass(HueSaturationShader);
 	hueSatPass.enabled = false;
-	composer.addPass(hueSatPass);
 	// Brightness/Contrast pass for final grading
 	brightnessPass = new ShaderPass(BrightnessContrastShader);
 	brightnessPass.enabled = false;
@@ -3032,25 +3088,25 @@ renderer.setClearColor(0x1f1e1c, 1);
 		brightnessPass.uniforms['brightness'].value = 0.0;
 		brightnessPass.uniforms['contrast'].value = 0.0;
 	}
-	// composer.addPass(brightnessPass);
+    composer.addPass(rgbShiftPass);
 	// Mirror pass (screen-space flips)
 	mirrorPass = new ShaderPass(MirrorAxisShader);
 	mirrorPass.enabled = false;
 	composer.addPass(mirrorPass);
-	// Vignette pass (disabled by default)
+	// Vignette pass (disabled)
 	vignettePass = new ShaderPass(VignetteShader);
 	vignettePass.enabled = false;
 	if (vignettePass.uniforms) {
-		vignettePass.uniforms['offset'].value = 1.2; // 1.0 is center
-		vignettePass.uniforms['darkness'].value = 1.35; // >1 darkens edges
+		vignettePass.uniforms['offset'].value = 1.5; // more towards edges
+		vignettePass.uniforms['darkness'].value = 1.05; // even more subtle
 	}
 	composer.addPass(vignettePass);
+    composer.addPass(rgbShiftPass);
 
 	// Third-row exclusive passes
 	// Bloom
-	bloomPass = new BloomPass(0.8, 25, 4.0, 256);
+	bloomPass = new BloomPass(1.8, 25, 4.0, 256);
 	bloomPass.enabled = false;
-	composer.addPass(bloomPass);
 	// SAO (ambient occlusion)
 	saoPass = new SAOPass(scene, camera, false, true);
 	saoPass.enabled = false;
@@ -3061,64 +3117,105 @@ renderer.setClearColor(0x1f1e1c, 1);
 		saoPass.params.saoKernelRadius = 16;
 		saoPass.params.saoMinResolution = 0;
 	}
-	composer.addPass(saoPass);
+
+    const ambient = new AmbientLight( 0x444444 );
+    const spotLight1 = createSpotlight( 0xFF7F00 );
+    const spotLight2 = createSpotlight( 0x00FF7F );
+    const spotLight3 = createSpotlight( 0x7F00FF );
+    spotLight1.position.set( 1.5, 4, 4.5 );
+    spotLight2.position.set( 0, 4, 3.5 );
+    spotLight3.position.set( - 1.5, 4, 4.5 );
+    scene.add( ambient );
+    scene.add( spotLight1, spotLight2, spotLight3 );
+
+    // Marching Cubes setup
+    marchingMaterials = generateMarchingMaterials();
+    marchingCubesEffect = new MarchingCubes( 28, marchingMaterials['plastic'], true, true, 100000 );
+    marchingCubesEffect.position.set( 0, 0, 0 );
+    marchingCubesEffect.scale.set( 4.0, 4.0, 4.0 );
+    scene.add( marchingCubesEffect );
+
+    // Marching Cubes GUI
+    marchingEffectController = {
+        enabled: true,
+        material: 'plastic',
+        speed: 0.3,
+        numBlobs: 10,
+        resolution: 12,
+        isolation: 150,
+        floor: false, // make floor transparent by disabling
+        wallx: false,
+        wallz: false,
+        posX: 0,
+        posY: 0,
+        posZ: 0
+    };
+
+    setupMarchingGui();
+    composer.addPass(saoPass);
 	// CubeTexture pass (only effective if a cube background exists)
 	cubeTexturePass = new CubeTexturePass(camera, scene);
 	cubeTexturePass.enabled = false;
-	//composer.addPass(cubeTexturePass);
-	//composer.addPass(filmPass);
-	//composer.addPass(halftonePass);
-	//composer.addPass(dotColorPass);
-	//composer.addPass(afterimagePass);
-	// //composer.addPass(bokehPass);
+	// composer.addPass(cubeTexturePass);
+	composer.addPass(filmPass);
+	composer.addPass(halftonePass);
+	composer.addPass(dotColorPass);
+    composer.addPass(saoPass);
+    composer.addPass(afterimagePass);
+    composer.addPass(bloomPass);
 
+    composer.addPass(brightnessPass);
+    composer.addPass(hueSatPass);
+    composer.addPass(bokehPass);
 
     const hdrEquirect = new RGBELoader().load(
-        "public/assets//empty_warehouse_01_2k.hdr",
+        "public/assets/empty_warehouse_01_2k.hdr",
         () => {
             hdrEquirect.mapping = THREE.EquirectangularReflectionMapping;
         }
     );
 
-
-    const textureLoader = new THREE.TextureLoader();
-    const bgTexture = textureLoader.load("public/assets/stained-glass.jpg");
-    const bgGeometry = new THREE.PlaneGeometry(19.2, 14.4);
-    const bgMaterial = new THREE.MeshBasicMaterial({ map: bgTexture });
-    const bgMesh = new THREE.Mesh(bgGeometry, bgMaterial);
-    bgMesh.position.set(0, 0, -1);
-    scene.add(bgMesh);
+    // const textureLoader = new THREE.TextureLoader();
+    // const bgTexture = textureLoader.load("public/assets/stained-glass.jpg");
+    // const bgGeometry = new THREE.PlaneGeometry(19.2, 14.4);
+    // const bgMaterial = new THREE.MeshBasicMaterial({ map: bgTexture });
+    // const bgMesh = new THREE.Mesh(bgGeometry, bgMaterial);
+    // bgMesh.position.set(0, 0, -1);
+    // scene.add(bgMesh);
 
     const material1 = new THREE.MeshPhysicalMaterial({
         roughness: lensOptions.roughness,
         transmission: lensOptions.transmission,
         thickness: lensOptions.thickness
     });
-    const spGeom = new THREE.SphereGeometry(3, 32, 32);
+    const spGeom = new THREE.SphereGeometry(2.5, 32, 32);
     const sp1 = new THREE.Mesh(spGeom, material1);
     sp1.position.set(0, 0, 3);
     scene.add(sp1);
     meshes.push(sp1);
 
-    const material2 = new THREE.MeshPhysicalMaterial({
+    const material2 = new THREE.MeshStandardMaterial({
         roughness: lensOptions.roughness,
+        metalness: 1,
         transmission: lensOptions.transmission,
         thickness: lensOptions.thickness,
+        emissive: new THREE.Color(0x00ff00),
+        emissiveIntensity: 2, // boost glow
         map: sp1
     });
 
 
 
-    // const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
-    // const feedbackMaterial = new THREE.MeshBasicMaterial({ map: renderTarget.texture });
-    // const feedbackPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 3), feedbackMaterial);
-    // feedbackPlane.position.set(0, 0, 9);
-    // scene.add(feedbackPlane);
+    const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+    const feedbackMaterial = new THREE.MeshBasicMaterial({ map: renderTarget.texture });
+    const feedbackPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 3), material2);
+    feedbackPlane.position.set(0, 0, 9);
+    scene.add(feedbackPlane);
 
 
-    const spGeom2 = new THREE.SphereGeometry(3, 32, 32);
-    const sp2 = new THREE.Mesh(spGeom, material2);
-    sp2.position.set(0, 0, 20);
+    const spGeom2 = new THREE.SphereGeometry(2, 32, 32);
+    const sp2 = new THREE.Mesh(spGeom2, material2);
+    sp2.position.set(0, 0, 12);
     scene.add(sp2);
     meshes.push(sp2);
 
@@ -3139,6 +3236,94 @@ renderer.setClearColor(0x1f1e1c, 1);
     });
 
 
+    const group = new THREE.Group();
+
+    for ( let i = 1; i <= 30; i += 2 ) {
+
+        const geometry = new THREE.SphereGeometry( i / 3, 48, 24 );
+
+        const material = new THREE.MeshPhongMaterial( {
+
+            color: new THREE.Color().setHSL( Math.random(), 0.5, 0.5, THREE.SRGBColorSpace ),
+            side: THREE.DoubleSide,
+            clippingPlanes: clipPlanes,
+            clipIntersection: params.clipIntersection,
+            alphaToCoverage: true,
+            transparent: true, opacity: 0.3
+        } );
+
+        group.add( new THREE.Mesh( geometry, material ) );
+
+    }
+
+    scene.add( group );
+
+    // helpers
+
+    const helpers = new THREE.Group();
+    helpers.add( new THREE.PlaneHelper( clipPlanes[ 0 ], 5, 0xff0000 ) );
+    helpers.add( new THREE.PlaneHelper( clipPlanes[ 1 ], 5, 0x00ff00 ) );
+    helpers.add( new THREE.PlaneHelper( clipPlanes[ 2 ], 5, 0x0000ff ) );
+    helpers.visible = false;
+    scene.add( helpers );
+
+    // gui
+
+    const guiIntersect = new GUI(
+        {autoPlace: true}
+    );
+    guiIntersect.domElement.style.position = 'absolute';
+    guiIntersect.domElement.style.top = '650px';
+    guiIntersect.domElement.style.left = '10px'; // Position to the right of halftone guiBokeh
+
+    guiIntersect.add( paramsIntersect, 'alphaToCoverage' ).onChange( function ( value ) {
+
+        group.children.forEach( c => {
+
+            c.material.alphaToCoverage = Boolean( value );
+            c.material.needsUpdate = true;
+
+        } );
+
+        render();
+
+    } );
+
+    guiIntersect.add( paramsIntersect, 'clipIntersection' ).name( 'clip intersection' ).onChange( function ( value ) {
+
+        const children = group.children;
+
+        for ( let i = 0; i < children.length; i ++ ) {
+
+            children[ i ].material.clipIntersection = value;
+
+        }
+
+        render();
+
+    } );
+
+    guiIntersect.add( paramsIntersect, 'planeConstant', - 1, 1 ).step( 0.01 ).name( 'plane constant' ).onChange( function ( value ) {
+
+        for ( let j = 0; j < clipPlanes.length; j ++ ) {
+
+            clipPlanes[ j ].constant = value;
+
+        }
+
+        // render();
+
+    } );
+
+    guiIntersect.add( paramsIntersect, 'showHelpers' ).name( 'show helpers' ).onChange( function ( value ) {
+
+        helpers.visible = value;
+
+        render();
+
+    } );
+
+    //
 
 	// Create ASCII pass
 	const asciiShader = {
@@ -3270,8 +3455,9 @@ renderer.setClearColor(0x1f1e1c, 1);
 
 	// Create blur pass for really blurry morphing
 	blurPass = new ShaderPass(blurShader);
-	blurPass.enabled = false; // Start disabled
-	//composer.addPass(blurPass);
+	blurPass.enabled = true; // Enabled for more blur
+	blurPass.uniforms.blurAmount.value = 0.5;
+	composer.addPass(blurPass);
 
 	// Create vignette pass for V key
 	const vignetteShader = {
@@ -3335,7 +3521,7 @@ renderer.setClearColor(0x1f1e1c, 1);
 
 	invertPass = new ShaderPass(invertShader);
 	invertPass.enabled = false;
-	composer.addPass(invertPass);
+	// composer.addPass(invertPass);
 
 	// Create pixelation pass for X key
 	const pixelateShader = {
@@ -3367,7 +3553,7 @@ renderer.setClearColor(0x1f1e1c, 1);
 
 	pixelatePass = new ShaderPass(pixelateShader);
 	pixelatePass.enabled = false;
-	composer.addPass(pixelatePass);
+	// composer.addPass(pixelatePass);
 
 	// Setup GUI controls for bokeh effect
 	setupBokehGUI();
@@ -3376,21 +3562,21 @@ renderer.setClearColor(0x1f1e1c, 1);
 	setupHalftoneGUI();
 
 	// Setup GUI controls for ASCII effect
-	setupAsciiGUI();
+	// setupAsciiGUI();
 
 
-// --- 1. Create a render target ---
-    const renderTargetFb = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
-        minFilter: THREE.LinearFilter,
-        magFilter: THREE.LinearFilter,
-        format: THREE.RGBAFormat,
-    });
-
-// --- 2. Plane that displays the render texture ---
-    const feedbackMaterialFb = new THREE.MeshBasicMaterial({ map: renderTargetFb.texture });
-    const planeFb = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), feedbackMaterialFb);
-    planeFb.position.set(0, 0, 9);
-    scene.add(planeFb)
+// // --- 1. Create a render target ---
+//     const renderTargetFb = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+//         minFilter: THREE.LinearFilter,
+//         magFilter: THREE.LinearFilter,
+//         format: THREE.RGBAFormat,
+//     });
+//
+// // --- 2. Plane that displays the render texture ---
+//     const feedbackMaterialFb = new THREE.MeshBasicMaterial({ map: renderTargetFb.texture });
+//     const planeFb = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), feedbackMaterialFb);
+//     planeFb.position.set(0, 0, 9);
+//     scene.add(planeFb)
 
 
     const video = document.createElement('video');
@@ -3400,19 +3586,56 @@ renderer.setClearColor(0x1f1e1c, 1);
     navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
         video.srcObject = stream;
     });
-
+    // public/assets/
     // Texture from webcam
     const videoTexture = new THREE.VideoTexture(video);
     videoTexture.minFilter = THREE.LinearFilter;
     videoTexture.magFilter = THREE.LinearFilter;
     videoTexture.format = THREE.RGBFormat;
 
-    // Plane with webcam texture
-    const geometry = new THREE.PlaneGeometry(3.2, 1.8);
-    const material = new THREE.MeshBasicMaterial({ map: videoTexture });
-    const screen = new THREE.Mesh(geometry, material);
-    screen.position.set(0, 0,6);
-    scene.add(screen);
+    const rows = 5;
+    const cols = 5;
+    const screenWidth = 1.6;
+    const screenHeight = 0.9;
+    const spacingX = 0.1;
+    const spacingY = 0.1;
+
+    const geometry = new THREE.PlaneGeometry(screenWidth, screenHeight);
+    const material = new THREE.MeshBasicMaterial({side: THREE.DoubleSide , map: videoTexture });
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const screen = new THREE.Mesh(geometry, material);
+
+            // Position each screen in grid
+            screen.position.set(
+                (col - cols / 2) * (screenWidth + spacingX),
+                (row - rows / 2) * (screenHeight + spacingY),
+                3
+            );
+            screen.rotation.y -= 0.01;
+
+            scene.add(screen);
+        }
+    }
+
+
+ //    const videoEye = document.createElement('video');
+ //    videoEye.src = 'public/assets/eye.mp4'; // Replace with your video path
+ //    videoEye.loop = true;
+ //    videoEye.muted = true;
+ //    videoEye.play();
+ //    const videoTextureEye = new THREE.VideoTexture(videoEye);
+ //    videoTexture.minFilter = THREE.LinearFilter;
+ //    videoTexture.magFilter = THREE.LinearFilter;
+ //    videoTexture.format = THREE.RGBFormat;
+ //    // Plane with webcam texture
+
+ //
+ // const geometryEye = new THREE.PlaneGeometry(3.2, 1.8);
+ //    const materialEye = new THREE.MeshBasicMaterial({ map: videoTextureEye });
+ //    const screenEye = new THREE.Mesh(geometryEye, materialEye);
+ //    screenEye.position.set(0, 0,10);
+ //    scene.add(screenEye);
 
    //     y initial background according to bgMode
 	try { applyBackground(window.bgMode || 1); } catch(e){}
@@ -3430,26 +3653,27 @@ renderer.setClearColor(0x1f1e1c, 1);
 	// canvas.addEventListener('mousemove', onMouseMove, false);
     console.log("Gamepad:", navigator.getGamepads()[0]);
 
-	mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
+	// mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
 	controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true; // Restore damping for smooth mouse controls
 	controls.enablePan = true; // Enable right-click panning to move objects/camera
 	controls.dampingFactor = 0.25;
 	controls.zoomSpeed = 0.5;
 	controls.rotateSpeed = 0.5;
+	controls.rotateSpeed = 0.8;
 	controls.keys = {
-		LEFT: 65,
-		UP: 87,
-		RIGHT: 68,
-		BOTTOM: 83
+        LEFT: 'ArrowLeft', UP: 'ArrowUp', RIGHT: 'ArrowRight', BOTTOM: 'ArrowDown'
 	};
-
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 2.0+audioLevel;
 	mapControls = new MapControls(camera, renderer.domElement);
 	mapControls.enableDamping = true; // Restore damping for smooth mouse controls
 	mapControls.dampingFactor = 0.25;
 	mapControls.screenSpacePanning = false;
 	mapControls.maxPolarAngle = Math.PI / 2;
-
+    mapControls.autoRotate = true;
+    mapControls.rotateSpeed = 0.8;
+    mapControls.autoRotateSpeed = 2.0+audioLevel;
 	window.mapControls = mapControls;
 	window.controls = controls;
 	camera.position.set(6, 2.5, 4);
@@ -3483,24 +3707,24 @@ renderer.setClearColor(0x1f1e1c, 1);
     scene.add(orangeLight);
 
 
-    const loader = new FontLoader();
-    loader.load('/fonts/helvetiker_regular.typeface.json', function (font) {
-        const textGeo = new TextGeometry('your place\n your time', {
-            font: font,
-            size: 115,
-            height: 222,
-            curveSegments: 12,
-            bevelEnabled: true,
-            bevelThickness: 0.5,
-            bevelSize: 0.3,
-            bevelSegments: 3
-        });
-
-        const textMaterial = new MeshStandardMaterial({ color: 0x5555ff });
-        const textMesh = new Mesh(textGeo, textMaterial);
-        textMesh.position.set(0, 0, 0);
-        scene.add(textMesh);
-    });
+    // const loader = new FontLoader();
+    // loader.load('/fonts/helvetiker_regular.typeface.json', function (font) {
+    //     const textGeo = new TextGeometry('your place\n your time', {
+    //         font: font,
+    //         size: 115,
+    //         height: 222,
+    //         curveSegments: 12,
+    //         bevelEnabled: true,
+    //         bevelThickness: 0.5,
+    //         bevelSize: 0.3,
+    //         bevelSegments: 3
+    //     });
+    //
+    //     const textMaterial = new MeshStandardMaterial({ color: 0x5555ff });
+    //     const textMesh = new Mesh(textGeo, textMaterial);
+    //     textMesh.position.set(0, 0, 0);
+    //     scene.add(textMesh);
+    // });
 
     render();
 
@@ -3523,6 +3747,46 @@ window.addEventListener('resize', onCanvasResize, false);
 // window.addEventListener('mouseup', onMouseUp, false);
 document.addEventListener('keydown', keyPress.bind(null, true));
 document.addEventListener('keyup', keyPress.bind(null, false));
+
+
+function createPlaneStencilGroup( geometry, plane, renderOrder ) {
+
+    const group = new THREE.Group();
+    const baseMat = new THREE.MeshBasicMaterial();
+    baseMat.depthWrite = false;
+    baseMat.depthTest = false;
+    baseMat.colorWrite = false;
+    baseMat.stencilWrite = true;
+    baseMat.stencilFunc = THREE.AlwaysStencilFunc;
+
+    // back faces
+    const mat0 = baseMat.clone();
+    mat0.side = THREE.BackSide;
+    mat0.clippingPlanes = [ plane ];
+    mat0.stencilFail = THREE.IncrementWrapStencilOp;
+    mat0.stencilZFail = THREE.IncrementWrapStencilOp;
+    mat0.stencilZPass = THREE.IncrementWrapStencilOp;
+
+    const mesh0 = new THREE.Mesh( geometry, mat0 );
+    mesh0.renderOrder = renderOrder;
+    group.add( mesh0 );
+
+    // front faces
+    const mat1 = baseMat.clone();
+    mat1.side = THREE.FrontSide;
+    mat1.clippingPlanes = [ plane ];
+    mat1.stencilFail = THREE.DecrementWrapStencilOp;
+    mat1.stencilZFail = THREE.DecrementWrapStencilOp;
+    mat1.stencilZPass = THREE.DecrementWrapStencilOp;
+
+    const mesh1 = new THREE.Mesh( geometry, mat1 );
+    mesh1.renderOrder = renderOrder;
+
+    group.add( mesh1 );
+
+    return group;
+
+}
 
 function setInitialCameraPose() {
 	if (store.state.initialCameraPose && firstTimeAtRoute) {
@@ -3810,7 +4074,6 @@ function handleGamepadInput() {
 // Helper function to handle button presses (only once per press)
 function handleGamepadButtonPresses(gamepad) {
     if (!gamepad || !gamepad.buttons) return;
-
     // Button B/Circle (also send Enter key to the page)
     if (window.gamepadState.buttonCircle && !window.gamepadButtonBPressed) {
         window.gamepadButtonBPressed = true;
@@ -3852,7 +4115,7 @@ function handleGamepadButtonPresses(gamepad) {
     // Button Share → Trigger prolonged (5s) nice blur pulse instead of fullscreen
     if (window.gamepadState.buttonShare && !window.gamepadButtonSharePressed) {
         window.gamepadButtonSharePressed = true;
-        niceBlurPulse(5000, 700);
+        niceBlurPulse(5000, 1700);
     }
     if (!window.gamepadState.buttonShare) {
         window.gamepadButtonSharePressed = false;
@@ -4159,6 +4422,8 @@ function handleGamepadTriggers(gamepad) {
 
     // Left Bumper (always disable bokeh, enable RGB shift)
     if (window.gamepadState.leftBumper && !window.gamepadButtonLeftBumperPressed) {
+        smoothRandomizeAllParams();
+
         window.gamepadButtonLeftBumperPressed = true;
 
         // Disable bokeh
@@ -4174,9 +4439,9 @@ function handleGamepadTriggers(gamepad) {
         if (rgbShiftPass) {
             rgbShiftPass.enabled = true;
             params.rsx = Math.max(params.rsx, 0.02);
-            rgbShiftPass.uniforms['amount'].value = params.rsx;
-            rgbShiftPass.uniforms.amount.value = params.rsx;
-            rgbShiftPass.uniforms['angle'].value = params.rsy;
+            rgbShiftPass.uniforms['amount'].value = params.rsx/4;
+            rgbShiftPass.uniforms.amount.value = params.rsx/4;
+            rgbShiftPass.uniforms['angle'].value = params.rsy/4;
 
         }
 
@@ -4187,8 +4452,24 @@ function handleGamepadTriggers(gamepad) {
         window.gamepadButtonLeftBumperPressed = false;
     }
 
+    // Right Trigger (Toggle Bokeh enabled)
+    if (window.gamepadState.rightTrigger > 0.8 && !window.gamepadButtonRightTriggerPressed) {
+        effectController.enabled = !effectController.enabled;
+        if (bokehPass) bokehPass.enabled = effectController.enabled;
+        if (gui && gui.controllers) {
+            gui.controllers.forEach(c => {
+                if (c.property === 'enabled') c.setValue(effectController.enabled);
+            });
+        }
+        window.gamepadButtonRightTriggerPressed = true;
+    }
+    if (window.gamepadState.rightTrigger < 0.2) {
+        window.gamepadButtonRightTriggerPressed = false;
+    }
+
     // Right Bumper (Toggle Bokeh effect and smooth-randomize parameters)
     if (window.gamepadState.rightBumper && !window.gamepadButtonRightBumperPressed) {
+        smoothRandomizeBokeh(1000);
         spinCameraAroundSelectedObject();
         window.gamepadButtonRightBumperPressed = true;
         effectController.enabled = !effectController.enabled;
@@ -4216,8 +4497,6 @@ function handleGamepadTriggers(gamepad) {
     {
         const l2 = Math.max(0, Math.min(1, window.gamepadState.leftTrigger || 0));
 
-        console.log ('L2', l2
-        )
         if (l2 > 0.05) {
             // Film grain
             if (filmPass && filmPass.uniforms) {
@@ -4247,7 +4526,7 @@ function handleGamepadTriggers(gamepad) {
             // Trails: strengthen Afterimage "motion blur" with L2
             if (afterimagePass && afterimagePass.uniforms) {
                 afterimagePass.enabled = true;
-                const base = 0.94;
+                const base = 0.97;
                 afterimagePass.uniforms['damp'].value = Math.max(0.6, base - l2 * 0.5);
             }
             // Bokeh focal depth 40..50
@@ -4259,20 +4538,18 @@ function handleGamepadTriggers(gamepad) {
             // Edge-trigger fractal aberration on L2 press-in
             if (!window.fractalL2Active && l2 > 0.2) {
                 window.fractalL2Active = true;
-                fractalizeAberration(6, 55);
             }
-console.log ('L2', l2)
             // Hard press triggers fast 180° rotation (counter-clockwise), with blur pulse
             if (l2 > 0.95 && !window.spinL2Triggered) {
                 window.spinL2Triggered = true;
-                niceBlurPulse(600, 300);
+                niceBlurPulse(5600, 5300);
                 if (afterimagePass && afterimagePass.uniforms) {
                     afterimagePass.enabled = true;
                     const prev = afterimagePass.uniforms['damp'].value;
                     afterimagePass.uniforms['damp'].value = 0.85;
-                    setTimeout(() => { try { afterimagePass.uniforms['damp'].value = 0.94; } catch(e){} }, 500);
+                    setTimeout(() => { try { afterimagePass.uniforms['damp'].value = 0.97; } catch(e){} }, 500);
                 }
-                spinCamera180(false, 400, 1);
+                spinCamera180(false, 1400, 1);
             }
         } else {
             if (filmPass) filmPass.enabled = false;
@@ -4356,7 +4633,7 @@ function randomizeBokehParameters() {
 }
 
 // Smoothly tween all parameters to random targets over durationMs
-function smoothRandomizeAllParams(durationMs = 2000) {
+function smoothRandomizeAllParams(durationMs = 6000) {
     const rIn = (a, b) => a + Math.random() * (b - a);
     const rBool = (p = 0.5) => Math.random() < p;
 
@@ -4372,14 +4649,13 @@ function smoothRandomizeAllParams(durationMs = 2000) {
         };
 
         const targetRGBShift = rgbShiftPass ? {
-            amount: rIn(0.0, 0.35),
-            angle: rIn(0, Math.PI * 2)
+            amount: rIn(0.0, 0.01),
         } : null;
 
         const targetDotScreen = dotPass ? {
             enabled: rBool(0.7),
-            angle: rIn(0, Math.PI),
-            scale: rIn(0.2, 1.0)
+            // angle: rIn(0, Math.PI),
+            // scale: rIn(0.2, 1.0)
         } : null;
 
         const targetHalftone = halftonePass ? {
@@ -4601,7 +4877,7 @@ function smoothRandomizeAllParams(durationMs = 2000) {
 
             // Random background
             if (Math.random() < 0.6) {
-                applyBackground(2);
+                // applyBackground(2);
             }
 
             // Bokeh randomization (only if currently enabled)
@@ -4805,7 +5081,7 @@ function niceBlurPulse(durationMs = 5000, rampMs = 600) {
         threshold: 0.8,
         gain: 40.0,
         bias: 2.5,
-        fringe: 20.0,
+        fringe: 30.0,
         focalLength: prev.focalLength,
         showFocus: 0,
         manualdof: 0,
@@ -4885,7 +5161,7 @@ async function loadRandomSculpture() {
         const prevCode = store.state.selectedSculpture ? store.state.selectedSculpture.shaderSource : null;
 
         // Brief blur cue
-        triggerDelayedBlur(0, 800);
+        // triggerDelayedBlur(0, 800);
 
         // Fetch full sculpture + shader
         const sculpture = await store.dispatch('fetchSculpture', { id: choice.id });
@@ -4931,12 +5207,12 @@ function updateRGBShiftWithGamepad() {
 
     // D-pad controls for RGB shift
     if (window.gamepadState.dpadLeft) {
-        params.rsx = Math.max(0, params.rsx - 0.001);
+        params.rsx = Math.max(0, params.rsx - 0.0002);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
     if (window.gamepadState.dpadRight) {
-        params.rsx = Math.min(0.01, params.rsx + 0.001);
+        params.rsx = Math.min(0.01, params.rsx + 0.0002);
         updated = true;
         console.log('🎮 RGB Shift Amount:', params.rsx);
     }
@@ -5005,15 +5281,29 @@ function render(time) {
     if (audioInitialized) {
         updateAudioLevel();
         audioPhase += 0.12 + audioLevel * 0.6;
+
+        // Audio-reactive changes (3% max)
+        if (marchingCubesEffect && marchingCubesEffect.material) {
+            marchingCubesEffect.material.opacity = Math.max(0.1, 0.1 + window.audioLevel * 0.9); // fade from 0.1 to 1.0
+        }
+        // Modulate fog
+        if (scene.fog) {
+            scene.fog.near = 7 * (1 + window.audioLevel * 0.03);
+            scene.fog.far = 25 * (1 + window.audioLevel * 0.03);
+        }
+        // Modulate renderer clear alpha
+        renderer.setClearAlpha(0.5 + window.audioLevel * 0.015);
     }
 
 	// Keyboard-held momentary effects (audio-reactive)
 	applyHeldKeyEffects();
 
-	// Apply palette toggles via hue/saturation
-	applyPaletteToggles();
+ 	// Apply palette toggles via hue/saturation
+ 	applyPaletteToggles();
 
-	const t = (Date.now() - startTime) % 600000.0;
+
+
+ 	const t = (Date.now() - startTime) % 600000.0;
 
 	if (store.state.canvasSize.width !== prevCanvasSize.width || store.state.canvasSize.height !== prevCanvasSize.height) {
 		Object.assign(prevCanvasSize, store.state.canvasSize);
@@ -5050,7 +5340,6 @@ function render(time) {
 			setInitialCameraPose();
 
 
-
             // if(store.state.initialCameraPose && firstTimeAtRoute) {
 			// 	firstTimeAtRoute = false;
 			// 	let pose = store.state.initialCameraPose;
@@ -5069,7 +5358,7 @@ function render(time) {
 		sculptureHasBeenSelected = false;
 	}
 
-	let currTime = t * 0.001;
+	let currTime = t * 0.0001;
 	store.state.objectsToUpdate.forEach(sculpture => {
 		if (!store.state.selectedSculpture && !tweeningSculpturesOpacity && store.state.sculpturesLoaded){
 			let fadeOpacity = calcSculptureOpacityForCameraDistance(sculpture);
@@ -5145,7 +5434,7 @@ function render(time) {
 		}
 		// fade + bend existing
 		const toRemove = [];
-		const bendTime = (Date.now() - startTime) * 0.001;
+		const bendTime = (Date.now() - startTime) * 0.00010;
 		window.generatedLines.children.forEach(line => {
 			try {
 				// slow fade for longer persistence
@@ -5222,6 +5511,27 @@ function render(time) {
         }
     }
 
+    if (store.state.selectedObject) {
+        store.state.selectedObject.rotation.y += 0.01;
+        const scale = 1.0 + Math.sin(timeInSeconds * 2.0) * 0.1;
+        store.state.selectedObject.scale.set(scale, scale, scale);
+    }
+
+    // Update Marching Cubes
+    marchingCubesEffect.visible = marchingEffectController.enabled;
+    marchingCubesEffect.position.set( marchingEffectController.posX, marchingEffectController.posY, marchingEffectController.posZ );
+    if ( marchingEffectController.enabled ) {
+        marchingTime += marchingEffectController.speed * 0.01;
+        if ( marchingEffectController.resolution !== marchingCubesEffect.resolution ) {
+            marchingCubesEffect.resolution = marchingEffectController.resolution;
+            marchingCubesEffect.init( Math.floor( marchingEffectController.resolution ) );
+        }
+        if ( marchingEffectController.isolation !== marchingCubesEffect.isolation ) {
+            marchingCubesEffect.isolation = marchingEffectController.isolation;
+        }
+        updateCubes( marchingCubesEffect, marchingTime, marchingEffectController.numBlobs, marchingEffectController.floor, marchingEffectController.wallx, marchingEffectController.wallz, marchingEffectController.material );
+    }
+
 	// Handle bokeh depth-of-field rendering
 	if (effectController.enabled) {
 		// Handle depth calculation if enabled
@@ -5237,12 +5547,11 @@ function render(time) {
 			bokehPass.uniforms['focalDepth'].value = ldistance;
 			effectController.focalDepth = ldistance;
 		}
-
-		// renderer.clear();
+		renderer.clear();
 
 		// Render scene into color texture
-		// renderer.setRenderTarget(rtTextureColor);
-		// renderer.clear();
+		renderer.setRenderTarget(rtTextureColor);
+		renderer.clear();
 
         // fps limit?
         // setTimeout( function() {
@@ -5252,23 +5561,20 @@ function render(time) {
 		renderer.render(scene, camera);
 
 		// Render depth into texture
-		// scene.overrideMaterial = materialDepth;
-		// renderer.setRenderTarget(rtTextureDepth);
-		// renderer.clear();
-		// renderer.render(scene, camera);
-		// scene.overrideMaterial = null;
+		scene.overrideMaterial = materialDepth;
+		renderer.setRenderTarget(rtTextureDepth);
+		renderer.clear();
+		renderer.render(scene, camera);
+		scene.overrideMaterial = null;
 
 
         // Render the scene to the render target
-        // renderer.setRenderTarget(renderTarget);
+        // renderer.autoClear = false;
+        // renderer.clearColor();
+        // renderer.clearDepth();
+        // renderer.setRenderTarget(renderTargetFb);
         // renderer.render(scene, camera);
-        // renderer.setRenderTarget(null); // back to default framebuffer
-        renderer.autoClear = false;
-        renderer.clearColor();
-        renderer.clearDepth();
-        renderer.setRenderTarget(renderTargetFb);
-        renderer.render(scene, camera);
-        renderer.setRenderTarget(null);
+        // renderer.setRenderTarget(null);
 
         // Apply post-processing with bokeh
 		composer.render();
@@ -5277,6 +5583,124 @@ function render(time) {
 		composer.render();
 	}
 
+}
+
+// Marching Cubes update function
+function updateCubes( object, time, numblobs, floor, wallx, wallz, material ) {
+    object.reset();
+
+    // fill the field with some metaballs
+    const rainbow = [
+        new THREE.Color( 0xff0000 ),
+        new THREE.Color( 0xffbb00 ),
+        new THREE.Color( 0xffff00 ),
+        new THREE.Color( 0x00ff00 ),
+        new THREE.Color( 0x0000ff ),
+        new THREE.Color( 0x9400bd ),
+        new THREE.Color( 0xc800eb )
+    ];
+    const subtract = 12;
+    const strength = 1.2 / ( ( Math.sqrt( numblobs ) - 1 ) / 4 + 1 );
+
+    for ( let i = 0; i < numblobs; i ++ ) {
+        const ballx = Math.sin( i + 1.26 * time * ( 1.03 + 0.5 * Math.cos( 0.21 * i ) ) ) * 0.27 + 0.5;
+        const bally = Math.abs( Math.cos( i + 1.12 * time * Math.cos( 1.22 + 0.1424 * i ) ) ) * 0.77; // dip into the floor
+        const ballz = Math.cos( i + 1.32 * time * 0.1 * Math.sin( ( 0.92 + 0.53 * i ) ) ) * 0.27 + 0.5;
+
+        if ( material === 'multiColors' ) {
+            object.addBall( ballx, bally, ballz, strength, subtract, rainbow[ i % 7 ] );
+        } else {
+            object.addBall( ballx, bally, ballz, strength, subtract );
+        }
+    }
+
+    if ( floor ) object.addPlaneY( 2, 12 );
+    if ( wallz ) object.addPlaneZ( 2, 12 );
+    if ( wallx ) object.addPlaneX( 2, 12 );
+
+    object.update();
+}
+
+function createShaderMaterial( shader, light, ambientLight ) {
+    const u = THREE.UniformsUtils.clone( shader.uniforms );
+    const vs = shader.vertexShader;
+    const fs = shader.fragmentShader;
+    const material = new THREE.ShaderMaterial( { uniforms: u, vertexShader: vs, fragmentShader: fs } );
+    material.uniforms[ 'uDirLightPos' ].value = light.position;
+    material.uniforms[ 'uDirLightColor' ].value = light.color;
+    material.uniforms[ 'uAmbientLightColor' ].value = ambientLight.color;
+    return material;
+}
+
+function generateMarchingMaterials() {
+    // Get lights from scene
+    const light = scene.children.find(child => child.isDirectionalLight) || new THREE.DirectionalLight(0xffffff, 1);
+    const ambientLight = scene.children.find(child => child.isAmbientLight) || new THREE.AmbientLight(0x323232, 1);
+
+    const toonMaterial1 = createShaderMaterial( ToonShader1, light, ambientLight );
+    const toonMaterial2 = createShaderMaterial( ToonShader2, light, ambientLight );
+    const hatchingMaterial = createShaderMaterial( ToonShaderHatching, light, ambientLight );
+    const dottedMaterial = createShaderMaterial( ToonShaderDotted, light, ambientLight );
+
+    const materials = {
+        'shiny': new THREE.MeshStandardMaterial( { color: 0x9c0000, roughness: 0.1, metalness: 1.0, transparent: true, opacity: 0.1 } ),
+        'chrome': new THREE.MeshLambertMaterial( { color: 0xffffff, transparent: true, opacity: 0.1 } ),
+        'liquid': new THREE.MeshLambertMaterial( { color: 0xffffff, refractionRatio: 0.85, transparent: true, opacity: 0.1 } ),
+        'matte': new THREE.MeshPhongMaterial( { specular: 0x494949, shininess: 1, transparent: true, opacity: 0.1 } ),
+        'flat': new THREE.MeshLambertMaterial( { /*flatShading: true */ transparent: true, opacity: 0.1 } ),
+        'textured': new THREE.MeshPhongMaterial( { color: 0xffffff, specular: 0x111111, shininess: 1, map: new THREE.TextureLoader().load( 'textures/uv_grid_opengl.jpg' ), transparent: true, opacity: 0.1 } ), // include but exclude from gui
+        'colors': new THREE.MeshPhongMaterial( { color: 0xffffff, specular: 0xffffff, shininess: 2, vertexColors: true, transparent: true, opacity: 0.1 } ),
+        'multiColors': new THREE.MeshPhongMaterial( { shininess: 2, vertexColors: true, transparent: true, opacity: 0.1 } ),
+        'plastic': new THREE.MeshPhongMaterial( { specular: 0xc1c1c1, shininess: 250, transparent: true, opacity: 0.1 } ),
+        'toon1': toonMaterial1,
+        'toon2': toonMaterial2,
+        'hatching': hatchingMaterial,
+        'dotted': dottedMaterial
+    };
+    return materials;
+}
+
+function setupMarchingGui() {
+    const createHandler = function ( id ) {
+        return function () {
+            marchingEffectController.material = id;
+            marchingCubesEffect.material = marchingMaterials[ id ];
+            marchingCubesEffect.enableUvs = ( marchingEffectController.material === 'textured' ) ? true : false;
+            marchingCubesEffect.enableColors = ( marchingEffectController.material === 'colors' || marchingEffectController.material === 'multiColors' ) ? true : false;
+        };
+    };
+
+    marchingGui = new GUI( { title: 'Marching Cubes' } );
+
+    // Make GUI movable, position to top left
+    marchingGui.domElement.style.position = 'absolute';
+    marchingGui.domElement.style.left = '10px';
+    marchingGui.domElement.style.top = '30px';
+
+    // material (type)
+    let h = marchingGui.addFolder( 'Materials' );
+    for ( const m in marchingMaterials ) {
+        if ( m === 'textured' ) continue; // exclude texture modes
+        marchingEffectController[ m ] = createHandler( m );
+        h.add( marchingEffectController, m ).name( m );
+    }
+
+    // simulation
+    h = marchingGui.addFolder( 'Simulation' );
+    h.add( marchingEffectController, 'enabled' );
+    h.add( marchingEffectController, 'speed', 0.1, 8.0, 0.05 );
+    h.add( marchingEffectController, 'numBlobs', 1, 50, 1 );
+    h.add( marchingEffectController, 'resolution', 14, 100, 1 );
+    h.add( marchingEffectController, 'isolation', 10, 300, 1 );
+    h.add( marchingEffectController, 'floor' );
+    h.add( marchingEffectController, 'wallx' );
+    h.add( marchingEffectController, 'wallz' );
+
+    // position
+    h = marchingGui.addFolder( 'Position' );
+    h.add( marchingEffectController, 'posX', -10, 10 );
+    h.add( marchingEffectController, 'posY', -10, 10 );
+    h.add( marchingEffectController, 'posZ', -10, 10 );
 }
 
 function piCreateMediaRecorder(isRecordingCallback, canvas)
@@ -5494,7 +5918,7 @@ function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
 	});
 }
 
-function tweenObjectToValue(obj, endValue, updateCallback, time = 1000) {
+function tweenObjectToValue(obj, endValue, updateCallback, time = 2000) {
 	return new Promise(function (resolve, reject) {
 		let currState = { state: obj };
 		let tween = new TWEEN.Tween(currState)
@@ -5508,7 +5932,7 @@ function tweenObjectToValue(obj, endValue, updateCallback, time = 1000) {
 	});
 }
 
-function transitionAllSculpturesOpacity(opacity, duration = 2000, excludedSculptureId = null) {
+function transitionAllSculpturesOpacity(opacity, duration = 4000, excludedSculptureId = null) {
 	tweeningSculpturesOpacity = true;
 
 	let objectsToFade = store.state.objectsToUpdate.filter(obj => calcSculptureOpacityForCameraDistance(obj) > 0);

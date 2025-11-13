@@ -47,6 +47,7 @@ export class Sculpture {
         this.pedestal = new Mesh(pedestalGeom, pedestalMat);
         this.sepBuffer = 0.05; // Small gap between sculpture and pedestal prevents z-fighting
         this.pedestal.position.set(0, -1.5-this.sepBuffer, 0);
+        this.mesh.position.set(0, 0, 7);
         this.mesh.add(this.pedestal);
         this.pedestalEdges = createPedestalEdges(2, 1);
         this.pedestalEdges.position.set(0, -1.5-this.sepBuffer, 0);
