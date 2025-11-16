@@ -6656,6 +6656,11 @@ thread-loader@^3.0.0:
     neo-async "^2.6.2"
     schema-utils "^3.0.0"
 
+three-shadertoy-texture@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.npmjs.org/three-shadertoy-texture/-/three-shadertoy-texture-1.0.1.tgz"
+  integrity sha512-GsM97iDvM7A1Axj5yFaZQUMYYSHhav4IH6XY7kFHyp2tDBcHX+Hc3mX4WVmlLj06eCK9vZNgghlPkDEuf0V0PQ==
+
 three@^0.155.0:
   version "0.155.0"
   resolved "https://registry.npmjs.org/three/-/three-0.155.0.tgz"

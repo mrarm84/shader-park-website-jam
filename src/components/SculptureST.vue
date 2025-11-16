@@ -5,7 +5,6 @@
 
 import {SculptureST} from '../threejs-sculpture/SculptureST.js';
 import {mapGetters} from 'vuex';
-// import {defaultFragSourceGLSL} from 'shader-park-core';
 import { ShadertoyTexture } from "three-shadertoy-texture";
 
 function defaultMap(obj, id, def) {
@@ -84,7 +83,11 @@ export default {
       featured: this.sculpData.featured || false,
       visibility: this.sculpData.visibility || 'public', //draft, public, private
       license: this.sculpData.license || null,
-      shaderSource: this.sculpData.shaderSource || ((this.sculpData.type && this.sculpData.type === 'glsl') ? defaultFragSourceGLSL : 'sphere(0.5);'),
+       shaderSource: this.sculpData.shaderSource || `void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord/iResolution.xy;
+    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));
+    fragColor = vec4(col,1.0);
+}`,
       type: this.sculpData.type || 'js',
       saved: this.sculpData.shaderSource ? true : false,
       thumbnail: this.sculpData.thumbnail || null,
@@ -97,7 +100,7 @@ export default {
 
     // this is just to make a copy??
     let shaderSourceCopy = this.shaderSource.slice();
-    this.sculptureST = new SculptureST(this.type !== 'js', shaderSourceCopy, this.MSDFTexture);
+    this.sculptureST = new SculptureST(true, shaderSourceCopy, null); // Always treat as GLSL for ShaderToy
     if (this.sculptureST.compileError) {
       //wait until the editor opens to log the error
       setTimeout(() => {
@@ -124,30 +127,14 @@ export default {
   watch: {
     shaderSource: function (input) {
       if (this.sculptureST) {
-        let processedInput = input;
-
-
-        const pattern = /let\s+audioLevel/;
-        const pattern2 = /\/\/let\s+audioLevel/;
-        if (!pattern.test(processedInput) && !pattern2.test(processedInput)) {
-         processedInput = '\/\/let audioLevel = input();\n' + processedInput;
-        }
-        console.log('this.type1', this.type)
-        // if (this.type !== 'glsl') { // Only for Shader Park code, not GLSL
-        // }
-
-        this.shaderSource = processedInput;
-        // Insert custom code before audioLevel input for Shader Park sketches
-        // console.log('this.shaderSource3', this.shaderSource, 'input ', input)
-
+        console.log('Updating ShaderToy shader source, length:', input.length);
 
         try {
-          this.sculptureST.refreshMaterial(processedInput);
+          this.sculptureST.refreshMaterial(input);
           this.$store.commit('setSculptureError', ' ');
         } catch (e) {
           this.$store.commit('setSculptureError', e);
         }
-
       }
     },
     selectedObject: function (obj) {
@@ -164,9 +151,7 @@ export default {
     selectedObject() {
       return this.$store.state.selectedObject;
     },
-    MSDFTexture() {
-      return this.$store.getters.getMSDFTexture;
-    },
+
   },
   methods: {
     setPose(pose) {
@@ -176,13 +161,9 @@ export default {
       this.saved = saved;
     },
     setSelectedSculpture(obj) {
-      let uniformsToExclude = {'sculptureCenter': 0, 'msdf': 0, 'opacity': 0, 'time': 0, 'resolution': 0};
       if (obj && this.sculptureST && this.sculptureST.mesh && this.sculptureST.mesh.name && obj.name == this.sculptureST.mesh.name) {
         this.$store.state.selectedSculpture = this.$data;
         this.$store.state.currSculpture = this.$data;
-        if (this.sculptureST.uniforms) {
-          this.sculptureST.uniforms = this.sculptureST.uniforms.filter(uniform => !(uniform.name in uniformsToExclude))
-        }
         this.sculptureST.selectedSculpture(true);
       } else {
         if (this.sculptureST && this.sculptureST.selected) {

@@ -161,112 +161,112 @@ window.spinR2Triggered = false;
 window.fractalL2Active = false;
 
 router.beforeEach((to, from, next) => {
-	const currentUser = firebase.auth().currentUser;
+    const currentUser = firebase.auth().currentUser;
 
-	const nextRoute = () => {
-		store.state.selectedObject = null;
-		animationPaused = true;
-		allSculpturesOpacity.opacity = 0.0;
-		sculptureHasBeenDeselected = false;
-		sculptureHasBeenSelected = false;
-		selectedSculptureOpacity.opacity = 0.0;
-		store.state.selectedSculpture = null;
-		cachedSelectedSculptureId = null;
-		cachedCameraPose = null;
-		firstTimeAtRoute = true;
-		const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
-		if (requiresAuth && !currentUser) {
-			this.$store.commit('displayLogin', true);
-			// next('/sign-in');
-		} else if (requiresAuth && currentUser) {
-			store.state.displayCanvas = false;
-			next();
-		} else {
-			store.state.displayCanvas = false;
-			next();
-		}
-		animationPaused = false;
-	};
-	if (store.state.selectedSculpture) { //fade single sculpture if selected
-		let id = store.state.selectedSculpture.id;
-		transitionSculptureOpacity(id, 0.0, 3000).then(() => {
-			const nextRouteHasSculptureSelected = to.matched.some(record => record.meta.selectedSculpture);
-			if (!nextRouteHasSculptureSelected) {
-				store.state.selectedSculpture = null;
-			}
-			setTimeout(() => { //wait for the editor to close
-				store.state.displayCanvas = false;
-				nextRoute();
-			}, 300);
-		});
-	} else if (store.state.sculpturesLoaded) {
-		if (store.state.displayCanvas) {
-			transitionAllSculpturesOpacity(0.0, 1000).then(() => {
-				store.state.displayCanvas = false;
-				nextRoute();
-			});
-		} else {
-			nextRoute();
-		}
-	} else {
-		store.state.displayCanvas = false;
-		nextRoute();
-	}
+    const nextRoute = () => {
+        store.state.selectedObject = null;
+        animationPaused = true;
+        allSculpturesOpacity.opacity = 0.0;
+        sculptureHasBeenDeselected = false;
+        sculptureHasBeenSelected = false;
+        selectedSculptureOpacity.opacity = 0.0;
+        store.state.selectedSculpture = null;
+        cachedSelectedSculptureId = null;
+        cachedCameraPose = null;
+        firstTimeAtRoute = true;
+        const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
+        if (requiresAuth && !currentUser) {
+            this.$store.commit('displayLogin', true);
+            // next('/sign-in');
+        } else if (requiresAuth && currentUser) {
+            store.state.displayCanvas = false;
+            next();
+        } else {
+            store.state.displayCanvas = false;
+            next();
+        }
+        animationPaused = false;
+    };
+    if (store.state.selectedSculpture) { //fade single sculpture if selected
+        let id = store.state.selectedSculpture.id;
+        transitionSculptureOpacity(id, 0.0, 3000).then(() => {
+            const nextRouteHasSculptureSelected = to.matched.some(record => record.meta.selectedSculpture);
+            if (!nextRouteHasSculptureSelected) {
+                store.state.selectedSculpture = null;
+            }
+            setTimeout(() => { //wait for the editor to close
+                store.state.displayCanvas = false;
+                nextRoute();
+            }, 300);
+        });
+    } else if (store.state.sculpturesLoaded) {
+        if (store.state.displayCanvas) {
+            transitionAllSculpturesOpacity(0.0, 1000).then(() => {
+                store.state.displayCanvas = false;
+                nextRoute();
+            });
+        } else {
+            nextRoute();
+        }
+    } else {
+        store.state.displayCanvas = false;
+        nextRoute();
+    }
 });
 
 let firstInit = true;
 let vueApp;
 firebase.auth().onAuthStateChanged(function(user) {
-	if(firstInit) {
-		vueApp = new Vue({el: '#app', store: store, router: router, render: h => h(App)});
-		init();
+    if(firstInit) {
+        vueApp = new Vue({el: '#app', store: store, router: router, render: h => h(App)});
+        init();
 
-		//Detect when sculpture is saved
-		vueApp.$store.subscribeAction(async (action, state) => {
-			let {payload, type} = action;
-			await payload;
-			if ((type === 'saveNewSculpture' || type === 'saveSculpture')
-				&& (payload.uid === firebase.auth().currentUser.uid || firebase.auth().currentUser.uid ==='K3lAQQTKbiTiVXlwRZouH4OrWyv1')) {
-				//hide pedestal during image capture
-				let pedestal = null;
-				let pedestalWasVisible = false;
-				if (state.selectedSculpture && state.selectedSculpture.sculpture && state.selectedSculpture.sculpture.pedestal) {
-					pedestal = state.selectedSculpture.sculpture.pedestal;
+        //Detect when sculpture is saved
+        vueApp.$store.subscribeAction(async (action, state) => {
+            let {payload, type} = action;
+            await payload;
+            if ((type === 'saveNewSculpture' || type === 'saveSculpture')
+                && (payload.uid === firebase.auth().currentUser.uid || firebase.auth().currentUser.uid ==='K3lAQQTKbiTiVXlwRZouH4OrWyv1')) {
+                //hide pedestal during image capture
+                let pedestal = null;
+                let pedestalWasVisible = false;
+                if (state.selectedSculpture && state.selectedSculpture.sculpture && state.selectedSculpture.sculpture.pedestal) {
+                    pedestal = state.selectedSculpture.sculpture.pedestal;
 
-					pedestalWasVisible = pedestal.visible;
-					pedestal.visible = false;
+                    pedestalWasVisible = pedestal.visible;
+                    pedestal.visible = false;
 
-				}
+                }
 
-				setTimeout(() => { //make sure pedestal is hidden
-					captureCanvasImage(async (blob) => {
-						try {
-							if (pedestal && pedestalWasVisible) {
-								pedestal.visible = true;
-							}
-							//console.log('captured image', 'uploading to id', payload.id)
-							let fileData = await storageRef.child(`sculptureThumbnails/${payload.id}.png`).put(blob);
-							//console.log('uploaded')
-							let thumbnail = await fileData.ref.getDownloadURL();
-							if (thumbnail) {
-								//console.log('thumbnail url', thumbnail)
-								let storageLocation = 'sculptures';
-								if (payload.isExample) {
-									storageLocation = 'examples';
-								}
-								firebase.database().ref(storageLocation).child(payload.id).update({ thumbnail })
-							}
-						} catch(e) {
-							console.error(e);
-						}
-					}, false);
-				}, 1);
-			}
-		});
-		firstInit = false;
-	} else {
-		store.dispatch('setUser');
-	}
+                setTimeout(() => { //make sure pedestal is hidden
+                    captureCanvasImage(async (blob) => {
+                        try {
+                            if (pedestal && pedestalWasVisible) {
+                                pedestal.visible = true;
+                            }
+                            //console.log('captured image', 'uploading to id', payload.id)
+                            let fileData = await storageRef.child(`sculptureThumbnails/${payload.id}.png`).put(blob);
+                            //console.log('uploaded')
+                            let thumbnail = await fileData.ref.getDownloadURL();
+                            if (thumbnail) {
+                                //console.log('thumbnail url', thumbnail)
+                                let storageLocation = 'sculptures';
+                                if (payload.isExample) {
+                                    storageLocation = 'examples';
+                                }
+                                firebase.database().ref(storageLocation).child(payload.id).update({ thumbnail })
+                            }
+                        } catch(e) {
+                            console.error(e);
+                        }
+                    }, false);
+                }, 1);
+            }
+        });
+        firstInit = false;
+    } else {
+        store.dispatch('setUser');
+    }
 });
 // const scene = store.state.scene;
 const scene = new Scene();
@@ -779,22 +779,22 @@ function setupHalftoneGUI() {
 
     // Quick preset buttons
     halftoneGUI.add({ 'Additive+Additive': () => {
-        halftoneController.materialBlending = AdditiveBlending;
-        halftoneController.blendMode = AdditiveBlending;
-        halftoneController.shaderBlending = 1.0;
-        halftoneController.shaderBlendingMode = 1;
-        updateHalftoneBlending();
-        halftoneGUI.controllers.forEach(c => c.updateDisplay());
-    }}, 'Additive+Additive');
+            halftoneController.materialBlending = AdditiveBlending;
+            halftoneController.blendMode = AdditiveBlending;
+            halftoneController.shaderBlending = 1.0;
+            halftoneController.shaderBlendingMode = 1;
+            updateHalftoneBlending();
+            halftoneGUI.controllers.forEach(c => c.updateDisplay());
+        }}, 'Additive+Additive');
 
     halftoneGUI.add({ 'Multiply+Multiply': () => {
-        halftoneController.materialBlending = MultiplyBlending;
-        halftoneController.blendMode = MultiplyBlending;
-        halftoneController.shaderBlending = 1.0;
-        halftoneController.shaderBlendingMode = 1;
-        updateHalftoneBlending();
-        halftoneGUI.controllers.forEach(c => c.updateDisplay());
-    }}, 'Multiply+Multiply');
+            halftoneController.materialBlending = MultiplyBlending;
+            halftoneController.blendMode = MultiplyBlending;
+            halftoneController.shaderBlending = 1.0;
+            halftoneController.shaderBlendingMode = 1;
+            updateHalftoneBlending();
+            halftoneGUI.controllers.forEach(c => c.updateDisplay());
+        }}, 'Multiply+Multiply');
 
     updateHalftoneBlending();
 }
@@ -1316,25 +1316,25 @@ function createAudioUI() {
     document.body.appendChild(bgBtn);
     window.topControls.push(bgBtn);
 
-	// Randomize Params button
-	const rndPBtn = document.createElement('button');
-	rndPBtn.textContent = 'rndP';
-	rndPBtn.title = 'Randomize color/effect parameters';
-	rndPBtn.style.position = 'fixed';
-	rndPBtn.style.top = '8px';
-	rndPBtn.style.left = '284px';
-	rndPBtn.style.height = '24px';
-	rndPBtn.style.padding = '0 6px';
-	rndPBtn.style.border = '1px solid #ddd';
-	rndPBtn.style.borderRadius = '6px';
-	rndPBtn.style.background = '#fff';
-	rndPBtn.style.color = '#333';
-	rndPBtn.style.cursor = 'pointer';
-	rndPBtn.style.zIndex = '10010';
-	rndPBtn.style.fontSize = '12px';
+    // Randomize Params button
+    const rndPBtn = document.createElement('button');
+    rndPBtn.textContent = 'rndP';
+    rndPBtn.title = 'Randomize color/effect parameters';
+    rndPBtn.style.position = 'fixed';
+    rndPBtn.style.top = '8px';
+    rndPBtn.style.left = '284px';
+    rndPBtn.style.height = '24px';
+    rndPBtn.style.padding = '0 6px';
+    rndPBtn.style.border = '1px solid #ddd';
+    rndPBtn.style.borderRadius = '6px';
+    rndPBtn.style.background = '#fff';
+    rndPBtn.style.color = '#333';
+    rndPBtn.style.cursor = 'pointer';
+    rndPBtn.style.zIndex = '10010';
+    rndPBtn.style.fontSize = '12px';
     rndPBtn.addEventListener('click', () => { try { smoothRandomizeAllParams(); } catch(e) { console.error(e); } });
-	document.body.appendChild(rndPBtn);
-	window.topControls.push(rndPBtn);
+    document.body.appendChild(rndPBtn);
+    window.topControls.push(rndPBtn);
 
     // Palette button (Photoshop-like controls)
     const palBtn = document.createElement('button');
@@ -1801,15 +1801,15 @@ function handleKeyDown(e) {
             break;
         case 'p': // Fractalize aberration burst once
             window.keyboard.holdP = true;
-            {
-                const now = performance.now();
-                if (!window.keyboard.lastFractalTime || now - window.keyboard.lastFractalTime > 250) {
-                    window.keyboard.lastFractalTime = now;
-                    const a = (window.audioModulationEnabled && window.audioLevel) ? window.audioLevel : 0.0;
-                    const audioBoostFactor = 1.0 + Math.min(1.0, a * 3.0); // Boost up to 3x audio influence (results in max 2.0 multiplier on fractal effect)
-                    fractalizeAberration(6, 55, audioBoostFactor);
-                }
+        {
+            const now = performance.now();
+            if (!window.keyboard.lastFractalTime || now - window.keyboard.lastFractalTime > 250) {
+                window.keyboard.lastFractalTime = now;
+                const a = (window.audioModulationEnabled && window.audioLevel) ? window.audioLevel : 0.0;
+                const audioBoostFactor = 1.0 + Math.min(1.0, a * 3.0); // Boost up to 3x audio influence (results in max 2.0 multiplier on fractal effect)
+                fractalizeAberration(6, 55, audioBoostFactor);
             }
+        }
             break;
         case '[': // quick CCW micro-spin + short blur
             niceBlurPulse(300, 150);
@@ -2050,7 +2050,7 @@ function handleKeyDown(e) {
                 camera.near = window.normalCameraParams.near;
             }
             camera.updateProjectionMatrix();
-                syncHalftoneGUI();
+            syncHalftoneGUI();
             break;
         }
         case 'v':
@@ -2932,15 +2932,15 @@ function getAudioModulation(multiplier = 0.5, useSin = true) {
 
 function createSpotlight( color ) {
 
-	const newObj = new SpotLight( color, 10 );
+    const newObj = new SpotLight( color, 10 );
 
-	newObj.castShadow = true;
-	newObj.angle = 0.3;
-	newObj.penumbra = 0.2;
-	newObj.decay = 2;
-	newObj.distance = 50;
+    newObj.castShadow = true;
+    newObj.angle = 0.3;
+    newObj.penumbra = 0.2;
+    newObj.decay = 2;
+    newObj.distance = 50;
 
-	return newObj;
+    return newObj;
 
 }
 
@@ -2949,174 +2949,174 @@ function init() {
     overlay.remove();
 
     // handleGamepadInput()
-	canvasContainer = document.querySelector('.canvas-container');
-	renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', alpha: true});
-	renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
-	prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
+    canvasContainer = document.querySelector('.canvas-container');
+    renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance', alpha: true});
+    renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+    prevCanvasSize = { width: canvasContainer.clientWidth, height: canvasContainer.clientHeight };
     Object.assign(store.state.canvasSize, prevCanvasSize);
-	renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = PCFSoftShadowMap;
     renderer.localClippingEnabled = true;
 
     renderer.setClearAlpha(0.5);
-renderer.setClearColor(0x000000, 0.5);
-	canvasContainer.appendChild(renderer.domElement);
+    renderer.setClearColor(0x000000, 0.5);
+    canvasContainer.appendChild(renderer.domElement);
 
-	// Auto-focus canvas by simulating a click shortly after load
-	try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
+    // Auto-focus canvas by simulating a click shortly after load
+    try { setTimeout(() => { try { sendCanvasClick(); } catch(e){} }, 500); } catch(e){}
 
-	// Setup post-processing composer
-	composer = new EffectComposer(renderer);
-	renderPass = new RenderPass(scene, camera);
-	// Attach params to renderPass for blending/blendingMode control via keyboard (key '4')
-	renderPass.params = renderPass.params || {};
-	if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
-	if (typeof renderPass.params.blendingMode !== 'number') renderPass.params.blendingMode = 1;
-	composer.addPass(renderPass);
+    // Setup post-processing composer
+    composer = new EffectComposer(renderer);
+    renderPass = new RenderPass(scene, camera);
+    // Attach params to renderPass for blending/blendingMode control via keyboard (key '4')
+    renderPass.params = renderPass.params || {};
+    if (typeof renderPass.params.blending !== 'number') renderPass.params.blending = 1;
+    if (typeof renderPass.params.blendingMode !== 'number') renderPass.params.blendingMode = 1;
+    composer.addPass(renderPass);
 
-	// Setup bokeh depth shader material
-	const depthShader = BokehDepthShader;
+    // Setup bokeh depth shader material
+    const depthShader = BokehDepthShader;
     // depthShader.fragmentShader = /* glsl */`
     //
-	// 	uniform float mNear;
-	// 	uniform float mFar;
+    // 	uniform float mNear;
+    // 	uniform float mFar;
     //
-	// 	varying float vViewZDepth;
+    // 	varying float vViewZDepth;
     //
-	// 	void main() {
+    // 	void main() {
     //
-	// 		float color = 1.0 - smoothstep( mNear, mFar, vViewZDepth );
-	// 		gl_FragColor = vec4( vec3( color ), texture2D(tDiffuse, vUv).a );
+    // 		float color = 1.0 - smoothstep( mNear, mFar, vViewZDepth );
+    // 		gl_FragColor = vec4( vec3( color ), texture2D(tDiffuse, vUv).a );
     //
-	// 	}`;
-	materialDepth = new ShaderMaterial({
-		uniforms: depthShader.uniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader
-	});
-	materialDepth.uniforms['mNear'].value = camera.near;
-	materialDepth.uniforms['mFar'].value = camera.far;
+    // 	}`;
+    materialDepth = new ShaderMaterial({
+        uniforms: depthShader.uniforms,
+        vertexShader: depthShader.vertexShader,
+        fragmentShader: depthShader.fragmentShader
+    });
+    materialDepth.uniforms['mNear'].value = camera.near;
+    materialDepth.uniforms['mFar'].value = camera.far;
 
-	// Setup bokeh pass
-	const bokehShader = BokehShader;
-	const bokehUniforms = UniformsUtils.clone(bokehShader.uniforms);
-	bokehUniforms['textureWidth'].value = window.innerWidth;
-	bokehUniforms['textureHeight'].value = window.innerHeight;
+    // Setup bokeh pass
+    const bokehShader = BokehShader;
+    const bokehUniforms = UniformsUtils.clone(bokehShader.uniforms);
+    bokehUniforms['textureWidth'].value = window.innerWidth;
+    bokehUniforms['textureHeight'].value = window.innerHeight;
 
-	bokehPass = new ShaderPass({
-		uniforms: bokehUniforms,
-		vertexShader: bokehShader.vertexShader,
-		fragmentShader: bokehShader.fragmentShader,
-		defines: {
-			RINGS: shaderSettings.rings,
-			SAMPLES: shaderSettings.samples
-		}
-	});
+    bokehPass = new ShaderPass({
+        uniforms: bokehUniforms,
+        vertexShader: bokehShader.vertexShader,
+        fragmentShader: bokehShader.fragmentShader,
+        defines: {
+            RINGS: shaderSettings.rings,
+            SAMPLES: shaderSettings.samples
+        }
+    });
 
 
-	// Add RGB Shift effect
-	rgbShiftPass = new ShaderPass(RGBShiftShader);
-	rgbShiftPass.uniforms.amount.value = params.rsy; // tweak strength
-	rgbShiftPass.uniforms.angle.value = params.rsx; // tweak strength
-	rgbShiftPass.enabled = true;
-	// bokehPass.renderToScreen = true; // Removed to allow proper composer chain with brightness/contrast
+    // Add RGB Shift effect
+    rgbShiftPass = new ShaderPass(RGBShiftShader);
+    rgbShiftPass.uniforms.amount.value = params.rsy; // tweak strength
+    rgbShiftPass.uniforms.angle.value = params.rsx; // tweak strength
+    rgbShiftPass.enabled = true;
+    // bokehPass.renderToScreen = true; // Removed to allow proper composer chain with brightness/contrast
 
-	// Film pass (grain/scanlines), initially disabled
-	filmPass = new FilmPass(0.0, 0.0, 2048, false);
-	filmPass.enabled = false;
+    // Film pass (grain/scanlines), initially disabled
+    filmPass = new FilmPass(0.0, 0.0, 2048, false);
+    filmPass.enabled = false;
 
-	// Halftone pass (dots), initially disabled
-	halftonePass = new HalftonePass(window.innerWidth, window.innerHeight, {
-		radius: 12.0,
-		scatter: 0.0,
-		shape: 1,
-		greyscale: false,
+    // Halftone pass (dots), initially disabled
+    halftonePass = new HalftonePass(window.innerWidth, window.innerHeight, {
+        radius: 12.0,
+        scatter: 0.0,
+        shape: 1,
+        greyscale: false,
 
-	});
+    });
     halftonePass.material = new ShaderMaterial( {
         blending: 0.5,
         // blendMode: MultiplyBlending
     } );
     halftonePass.uniforms['greyscale'].value = false;
 
-	halftonePass.enabled = false;
+    halftonePass.enabled = false;
 
-	// Dot screen pass, initially disabled
-	dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 2.0);
-	dotPass.enabled = false;
+    // Dot screen pass, initially disabled
+    dotPass = new DotScreenPass(new Vector2(0, 0), 0.0, 2.0);
+    dotPass.enabled = false;
 
-	// Color-preserving Dot pass (disabled by default)
-	dotColorPass = new ShaderPass(DotColorShader);
-	dotColorPass.enabled = false;
+    // Color-preserving Dot pass (disabled by default)
+    dotColorPass = new ShaderPass(DotColorShader);
+    dotColorPass.enabled = false;
 
-	// Afterimage (motion blur) pass, initially disabled; default damp 0.97
-	afterimagePass = new AfterimagePass(0.97);
-	afterimagePass.enabled = false;
+    // Afterimage (motion blur) pass, initially disabled; default damp 0.97
+    afterimagePass = new AfterimagePass(0.97);
+    afterimagePass.enabled = false;
 
-	// Touch effect function
-	window.triggerTouchEffect = () => {
-		// Increase light intensity
-		ambient.intensity = 2;
-		// Temporarily enable and increase afterimage damp
-		const wasEnabled = afterimagePass.enabled;
-		afterimagePass.enabled = true;
-		afterimagePass.damp = 0.99;
-		setTimeout(() => {
-			ambient.intensity = 1;
-			afterimagePass.damp = 0.97;
-			afterimagePass.enabled = wasEnabled;
-		}, 500);
-	};
+    // Touch effect function
+    window.triggerTouchEffect = () => {
+        // Increase light intensity
+        ambient.intensity = 2;
+        // Temporarily enable and increase afterimage damp
+        const wasEnabled = afterimagePass.enabled;
+        afterimagePass.enabled = true;
+        afterimagePass.damp = 0.99;
+        setTimeout(() => {
+            ambient.intensity = 1;
+            afterimagePass.damp = 0.97;
+            afterimagePass.enabled = wasEnabled;
+        }, 500);
+    };
 
-	// Initialize bokeh render targets
-	rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
-	rtTextureColor = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
+    // Initialize bokeh render targets
+    rtTextureDepth = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
+    rtTextureColor = new WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: HalfFloatType });
 
-	// Set bokeh pass uniforms
-	bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
-	bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
+    // Set bokeh pass uniforms
+    bokehPass.uniforms['tColor'].value = rtTextureColor.texture;
+    bokehPass.uniforms['tDepth'].value = rtTextureDepth.texture;
 
-	composer.addPass(rgbShiftPass);
-	// Hue/Saturation pass for palette toggles
-	hueSatPass = new ShaderPass(HueSaturationShader);
-	hueSatPass.enabled = false;
-	// Brightness/Contrast pass for final grading
-	brightnessPass = new ShaderPass(BrightnessContrastShader);
-	brightnessPass.enabled = false;
-	if (brightnessPass.uniforms) {
-		brightnessPass.uniforms['brightness'].value = 0.0;
-		brightnessPass.uniforms['contrast'].value = 0.0;
-	}
     composer.addPass(rgbShiftPass);
-	// Mirror pass (screen-space flips)
-	mirrorPass = new ShaderPass(MirrorAxisShader);
-	mirrorPass.enabled = false;
-	composer.addPass(mirrorPass);
-	// Vignette pass (disabled)
-	vignettePass = new ShaderPass(VignetteShader);
-	vignettePass.enabled = false;
-	if (vignettePass.uniforms) {
-		vignettePass.uniforms['offset'].value = 1.5; // more towards edges
-		vignettePass.uniforms['darkness'].value = 1.05; // even more subtle
-	}
-	composer.addPass(vignettePass);
+    // Hue/Saturation pass for palette toggles
+    hueSatPass = new ShaderPass(HueSaturationShader);
+    hueSatPass.enabled = false;
+    // Brightness/Contrast pass for final grading
+    brightnessPass = new ShaderPass(BrightnessContrastShader);
+    brightnessPass.enabled = false;
+    if (brightnessPass.uniforms) {
+        brightnessPass.uniforms['brightness'].value = 0.0;
+        brightnessPass.uniforms['contrast'].value = 0.0;
+    }
+    composer.addPass(rgbShiftPass);
+    // Mirror pass (screen-space flips)
+    mirrorPass = new ShaderPass(MirrorAxisShader);
+    mirrorPass.enabled = false;
+    composer.addPass(mirrorPass);
+    // Vignette pass (disabled)
+    vignettePass = new ShaderPass(VignetteShader);
+    vignettePass.enabled = false;
+    if (vignettePass.uniforms) {
+        vignettePass.uniforms['offset'].value = 1.5; // more towards edges
+        vignettePass.uniforms['darkness'].value = 1.05; // even more subtle
+    }
+    composer.addPass(vignettePass);
     composer.addPass(rgbShiftPass);
 
-	// Third-row exclusive passes
-	// Bloom
-	bloomPass = new BloomPass(1.8, 25, 4.0, 256);
-	bloomPass.enabled = false;
-	// SAO (ambient occlusion)
-	saoPass = new SAOPass(scene, camera, false, true);
-	saoPass.enabled = false;
-	if (saoPass.params) {
-		saoPass.params.saoBias = 0.5;
-		saoPass.params.saoIntensity = 0.015;
-		saoPass.params.saoScale = 1.0;
-		saoPass.params.saoKernelRadius = 16;
-		saoPass.params.saoMinResolution = 0;
-	}
+    // Third-row exclusive passes
+    // Bloom
+    bloomPass = new BloomPass(1.8, 25, 4.0, 256);
+    bloomPass.enabled = false;
+    // SAO (ambient occlusion)
+    saoPass = new SAOPass(scene, camera, false, true);
+    saoPass.enabled = false;
+    if (saoPass.params) {
+        saoPass.params.saoBias = 0.5;
+        saoPass.params.saoIntensity = 0.015;
+        saoPass.params.saoScale = 1.0;
+        saoPass.params.saoKernelRadius = 16;
+        saoPass.params.saoMinResolution = 0;
+    }
 
     const ambient = new AmbientLight( 0x444444 );
     const spotLight1 = createSpotlight( 0xFF7F00 );
@@ -3153,13 +3153,13 @@ renderer.setClearColor(0x000000, 0.5);
 
     setupMarchingGui();
     composer.addPass(saoPass);
-	// CubeTexture pass (only effective if a cube background exists)
-	cubeTexturePass = new CubeTexturePass(camera, scene);
-	cubeTexturePass.enabled = false;
-	// composer.addPass(cubeTexturePass);
-	composer.addPass(filmPass);
-	composer.addPass(halftonePass);
-	composer.addPass(dotColorPass);
+    // CubeTexture pass (only effective if a cube background exists)
+    cubeTexturePass = new CubeTexturePass(camera, scene);
+    cubeTexturePass.enabled = false;
+    // composer.addPass(cubeTexturePass);
+    composer.addPass(filmPass);
+    composer.addPass(halftonePass);
+    composer.addPass(dotColorPass);
     composer.addPass(saoPass);
     composer.addPass(afterimagePass);
     composer.addPass(bloomPass);
@@ -3325,24 +3325,24 @@ renderer.setClearColor(0x000000, 0.5);
 
     //
 
-	// Create ASCII pass
-	const asciiShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uFontSize': { value: 8.0 },
-			'uCharacters': { value: ' .:-=+*#%@' },
-			'uHueRandomness': { value: 0.0 },
-			'uSamplingMode': { value: 0 } // 0: simple, 1: accurate
-		},
-		vertexShader: `
+    // Create ASCII pass
+    const asciiShader = {
+        uniforms: {
+            'tDiffuse': { value: null },
+            'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+            'uFontSize': { value: 8.0 },
+            'uCharacters': { value: ' .:-=+*#%@' },
+            'uHueRandomness': { value: 0.0 },
+            'uSamplingMode': { value: 0 } // 0: simple, 1: accurate
+        },
+        vertexShader: `
 			varying vec2 vUv;
 			void main() {
 				vUv = uv;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 			}
 		`,
-		fragmentShader: `
+        fragmentShader: `
 			uniform sampler2D tDiffuse;
 			uniform vec2 uResolution;
 			uniform float uFontSize;
@@ -3447,33 +3447,33 @@ renderer.setClearColor(0x000000, 0.5);
 				gl_FragColor = vec4(finalColor, texColor.a);
 			}
 		`
-	};
+    };
 
-	asciiPass = new ShaderPass(asciiShader);
-	asciiPass.enabled = false; // Start disabled
-	//composer.addPass(asciiPass);
+    asciiPass = new ShaderPass(asciiShader);
+    asciiPass.enabled = false; // Start disabled
+    //composer.addPass(asciiPass);
 
-	// Create blur pass for really blurry morphing
-	blurPass = new ShaderPass(blurShader);
-	blurPass.enabled = true; // Enabled for more blur
-	blurPass.uniforms.blurAmount.value = 0.5;
-	composer.addPass(blurPass);
+    // Create blur pass for really blurry morphing
+    blurPass = new ShaderPass(blurShader);
+    blurPass.enabled = true; // Enabled for more blur
+    blurPass.uniforms.blurAmount.value = 0.5;
+    composer.addPass(blurPass);
 
-	// Create vignette pass for V key
-	const vignetteShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'offset': { value: 1.0 },
-			'darkness': { value: 1.5 }
-		},
-		vertexShader: `
+    // Create vignette pass for V key
+    const vignetteShader = {
+        uniforms: {
+            'tDiffuse': { value: null },
+            'offset': { value: 1.0 },
+            'darkness': { value: 1.5 }
+        },
+        vertexShader: `
 			varying vec2 vUv;
 			void main() {
 				vUv = uv;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 			}
 		`,
-		fragmentShader: `
+        fragmentShader: `
 			uniform sampler2D tDiffuse;
 			uniform float offset;
 			uniform float darkness;
@@ -3487,26 +3487,26 @@ renderer.setClearColor(0x000000, 0.5);
 				gl_FragColor = texColor * vignette;
 			}
 		`
-	};
+    };
 
-	vignettePass = new ShaderPass(vignetteShader);
-	vignettePass.enabled = false;
-	//composer.addPass(vignettePass);
+    vignettePass = new ShaderPass(vignetteShader);
+    vignettePass.enabled = false;
+    //composer.addPass(vignettePass);
 
-	// Create color inversion pass for C key
-	const invertShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'intensity': { value: 0.0 }
-		},
-		vertexShader: `
+    // Create color inversion pass for C key
+    const invertShader = {
+        uniforms: {
+            'tDiffuse': { value: null },
+            'intensity': { value: 0.0 }
+        },
+        vertexShader: `
 			varying vec2 vUv;
 			void main() {
 				vUv = uv;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 			}
 		`,
-		fragmentShader: `
+        fragmentShader: `
 			uniform sampler2D tDiffuse;
 			uniform float intensity;
 			varying vec2 vUv;
@@ -3517,27 +3517,27 @@ renderer.setClearColor(0x000000, 0.5);
 				gl_FragColor = mix(texColor, inverted, intensity);
 			}
 		`
-	};
+    };
 
-	invertPass = new ShaderPass(invertShader);
-	invertPass.enabled = false;
-	// composer.addPass(invertPass);
+    invertPass = new ShaderPass(invertShader);
+    invertPass.enabled = false;
+    // composer.addPass(invertPass);
 
-	// Create pixelation pass for X key
-	const pixelateShader = {
-		uniforms: {
-			'tDiffuse': { value: null },
-			'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-			'uPixelSize': { value: 4.0 }
-		},
-		vertexShader: `
+    // Create pixelation pass for X key
+    const pixelateShader = {
+        uniforms: {
+            'tDiffuse': { value: null },
+            'uResolution': { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+            'uPixelSize': { value: 4.0 }
+        },
+        vertexShader: `
 			varying vec2 vUv;
 			void main() {
 				vUv = uv;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 			}
 		`,
-		fragmentShader: `
+        fragmentShader: `
 			uniform sampler2D tDiffuse;
 			uniform vec2 uResolution;
 			uniform float uPixelSize;
@@ -3549,20 +3549,20 @@ renderer.setClearColor(0x000000, 0.5);
 				gl_FragColor = texColor;
 			}
 		`
-	};
+    };
 
-	pixelatePass = new ShaderPass(pixelateShader);
-	pixelatePass.enabled = false;
-	// composer.addPass(pixelatePass);
+    pixelatePass = new ShaderPass(pixelateShader);
+    pixelatePass.enabled = false;
+    // composer.addPass(pixelatePass);
 
-	// Setup GUI controls for bokeh effect
-	setupBokehGUI();
+    // Setup GUI controls for bokeh effect
+    setupBokehGUI();
 
-	// Setup GUI controls for halftone blending
-	setupHalftoneGUI();
+    // Setup GUI controls for halftone blending
+    setupHalftoneGUI();
 
-	// Setup GUI controls for ASCII effect
-	// setupAsciiGUI();
+    // Setup GUI controls for ASCII effect
+    // setupAsciiGUI();
 
 
 // // --- 1. Create a render target ---
@@ -3619,65 +3619,65 @@ renderer.setClearColor(0x000000, 0.5);
     }
 
 
- //    const videoEye = document.createElement('video');
- //    videoEye.src = 'public/assets/eye.mp4'; // Replace with your video path
- //    videoEye.loop = true;
- //    videoEye.muted = true;
- //    videoEye.play();
- //    const videoTextureEye = new THREE.VideoTexture(videoEye);
- //    videoTexture.minFilter = THREE.LinearFilter;
- //    videoTexture.magFilter = THREE.LinearFilter;
- //    videoTexture.format = THREE.RGBFormat;
- //    // Plane with webcam texture
+    //    const videoEye = document.createElement('video');
+    //    videoEye.src = 'public/assets/eye.mp4'; // Replace with your video path
+    //    videoEye.loop = true;
+    //    videoEye.muted = true;
+    //    videoEye.play();
+    //    const videoTextureEye = new THREE.VideoTexture(videoEye);
+    //    videoTexture.minFilter = THREE.LinearFilter;
+    //    videoTexture.magFilter = THREE.LinearFilter;
+    //    videoTexture.format = THREE.RGBFormat;
+    //    // Plane with webcam texture
 
- //
- // const geometryEye = new THREE.PlaneGeometry(3.2, 1.8);
- //    const materialEye = new THREE.MeshBasicMaterial({ map: videoTextureEye });
- //    const screenEye = new THREE.Mesh(geometryEye, materialEye);
- //    screenEye.position.set(0, 0,10);
- //    scene.add(screenEye);
+    //
+    // const geometryEye = new THREE.PlaneGeometry(3.2, 1.8);
+    //    const materialEye = new THREE.MeshBasicMaterial({ map: videoTextureEye });
+    //    const screenEye = new THREE.Mesh(geometryEye, materialEye);
+    //    screenEye.position.set(0, 0,10);
+    //    scene.add(screenEye);
 
-   //     y initial background according to bgMode
-	try { applyBackground(window.bgMode || 1); } catch(e){}
+    //     y initial background according to bgMode
+    try { applyBackground(window.bgMode || 1); } catch(e){}
 
-	canvas = document.querySelector('canvas');
-	canvas.setAttribute('tabindex', '0');
-	canvas.setAttribute('powerPreference', 'high-performance');
-	canvas.addEventListener('click', (event) => {
-		event.target.focus();
-	});
+    canvas = document.querySelector('canvas');
+    canvas.setAttribute('tabindex', '0');
+    canvas.setAttribute('powerPreference', 'high-performance');
+    canvas.addEventListener('click', (event) => {
+        event.target.focus();
+    });
 
-	// Add mouse interaction for bokeh focus
-	canvas.addEventListener('pointermove', onPointerMove);
+    // Add mouse interaction for bokeh focus
+    canvas.addEventListener('pointermove', onPointerMove);
 
-	// canvas.addEventListener('mousemove', onMouseMove, false);
+    // canvas.addEventListener('mousemove', onMouseMove, false);
     console.log("Gamepad:", navigator.getGamepads()[0]);
 
-	// mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
-	controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true; // Restore damping for smooth mouse controls
-	controls.enablePan = true; // Enable right-click panning to move objects/camera
-	controls.dampingFactor = 0.25;
-	controls.zoomSpeed = 0.5;
-	controls.rotateSpeed = 0.5;
-	controls.rotateSpeed = 0.8;
-	controls.keys = {
+    // mediaCap = piCreateMediaRecorder(() => console.log("capturing render"), canvas);
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; // Restore damping for smooth mouse controls
+    controls.enablePan = true; // Enable right-click panning to move objects/camera
+    controls.dampingFactor = 0.25;
+    controls.zoomSpeed = 0.5;
+    controls.rotateSpeed = 0.5;
+    controls.rotateSpeed = 0.8;
+    controls.keys = {
         LEFT: 'ArrowLeft', UP: 'ArrowUp', RIGHT: 'ArrowRight', BOTTOM: 'ArrowDown'
-	};
+    };
     controls.autoRotate = true;
     controls.autoRotateSpeed = 2.0+audioLevel;
-	mapControls = new MapControls(camera, renderer.domElement);
-	mapControls.enableDamping = true; // Restore damping for smooth mouse controls
-	mapControls.dampingFactor = 0.25;
-	mapControls.screenSpacePanning = false;
-	mapControls.maxPolarAngle = Math.PI / 2;
+    mapControls = new MapControls(camera, renderer.domElement);
+    mapControls.enableDamping = true; // Restore damping for smooth mouse controls
+    mapControls.dampingFactor = 0.25;
+    mapControls.screenSpacePanning = false;
+    mapControls.maxPolarAngle = Math.PI / 2;
     mapControls.autoRotate = true;
     mapControls.rotateSpeed = 0.8;
     mapControls.autoRotateSpeed = 2.0+audioLevel;
-	window.mapControls = mapControls;
-	window.controls = controls;
-	camera.position.set(6, 2.5, 4);
-	// controls.target.set(6, 0, 0);
+    window.mapControls = mapControls;
+    window.controls = controls;
+    camera.position.set(6, 2.5, 4);
+    // controls.target.set(6, 0, 0);
 
     scene.add(hemisphereLight);
 
@@ -3728,19 +3728,19 @@ renderer.setClearColor(0x000000, 0.5);
 
     render();
 
-	// Audio UI (small button top-left)
-	createAudioUI();
-	setupKeyboardControls();
+    // Audio UI (small button top-left)
+    createAudioUI();
+    setupKeyboardControls();
 
     // Helper globals
     window.headerHidden = true;
 }
 
 window.addEventListener("gamepadconnected", (e) => {
-	console.log("Gamepad connected:", e.gamepad);
+    console.log("Gamepad connected:", e.gamepad);
 });
 window.addEventListener("gamepaddisconnected", (e) => {
-	console.log("Gamepad disconnected:", e.gamepad);
+    console.log("Gamepad disconnected:", e.gamepad);
 });
 window.addEventListener('resize', onCanvasResize, false);
 // window.addEventListener('mousedown', onMouseDown, false);
@@ -3789,13 +3789,13 @@ function createPlaneStencilGroup( geometry, plane, renderOrder ) {
 }
 
 function setInitialCameraPose() {
-	if (store.state.initialCameraPose && firstTimeAtRoute) {
-		firstTimeAtRoute = false;
-		let pose = store.state.initialCameraPose;
-		camera.position.set(pose[0], pose[1], pose[2]);
-		controls.target.set(pose[0], 0, 0);
-		mapControls.target.set(pose[0], 0, 0);
-	}
+    if (store.state.initialCameraPose && firstTimeAtRoute) {
+        firstTimeAtRoute = false;
+        let pose = store.state.initialCameraPose;
+        camera.position.set(pose[0], pose[1], pose[2]);
+        controls.target.set(pose[0], 0, 0);
+        mapControls.target.set(pose[0], 0, 0);
+    }
 }
 
 // Global gamepad state object for Shader Park uniforms
@@ -3950,7 +3950,7 @@ function handleGamepadInput() {
                     // Control radius via left stick X (lx)
                     const radiusValue = Math.max(1, Math.abs(lx) * 20.0); // 1 to 20.0 based on |lx|
                     halftonePass.uniforms['radius'].value = 12*lx;
-                        syncHalftoneGUI()
+                    syncHalftoneGUI()
                     // Update GUI radius controller to reflect the change
                     if (halftoneGUI && halftoneGUI.controllers) {
                         halftoneGUI.controllers.forEach(controller => {
@@ -3961,16 +3961,16 @@ function handleGamepadInput() {
                     }
                 }
                 if (rgbShiftPass && rgbShiftPass.uniforms) {
-					const amt = 0.02 + r * 0.06;
+                    const amt = 0.02 + r * 0.06;
                     rgbShiftPass.enabled = true;
-					// base amount
-					rgbShiftPass.uniforms['amount'].value = amt;
-					if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = amt;
-					// add huge shift near edge without altering previous logic
-					const huge = Math.max(0, r - 0.7) * 0.6; // ramps up strongly from 0.7..1.0
-					const newAmt = Math.min(0.6, (rgbShiftPass.uniforms['amount'].value || amt) + huge);
-					rgbShiftPass.uniforms['amount'].value = newAmt;
-					if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = newAmt;
+                    // base amount
+                    rgbShiftPass.uniforms['amount'].value = amt;
+                    if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = amt;
+                    // add huge shift near edge without altering previous logic
+                    const huge = Math.max(0, r - 0.7) * 0.6; // ramps up strongly from 0.7..1.0
+                    const newAmt = Math.min(0.6, (rgbShiftPass.uniforms['amount'].value || amt) + huge);
+                    rgbShiftPass.uniforms['amount'].value = newAmt;
+                    if (rgbShiftPass.uniforms.amount) rgbShiftPass.uniforms.amount.value = newAmt;
                     rgbShiftPass.uniforms['angle'].value = ang;
                 }
             }
@@ -4044,27 +4044,27 @@ function handleGamepadInput() {
                 onMouseUp(fakeUpEvent);
             }
 
-        // Handle button presses (only once per press)
-        handleGamepadButtonPresses(gamepad);
+            // Handle button presses (only once per press)
+            handleGamepadButtonPresses(gamepad);
 
-        // Handle analog triggers for zoom
-        handleGamepadTriggers(gamepad);
+            // Handle analog triggers for zoom
+            handleGamepadTriggers(gamepad);
 
-        // Simulate click with Button A (already handled above in mouse section)
+            // Simulate click with Button A (already handled above in mouse section)
 
-        // Keep old virtual cursor code for compatibility (can be removed if not needed)
-        const virtualCursorSpeed = 10; // pixels per frame
-        virtualCursor.x += window.gamepadState.leftStickX * virtualCursorSpeed;
-        virtualCursor.y += window.gamepadState.leftStickY * virtualCursorSpeed;
+            // Keep old virtual cursor code for compatibility (can be removed if not needed)
+            const virtualCursorSpeed = 10; // pixels per frame
+            virtualCursor.x += window.gamepadState.leftStickX * virtualCursorSpeed;
+            virtualCursor.y += window.gamepadState.leftStickY * virtualCursorSpeed;
 
 
-        console.log('🎮 GAMEPAD ACTIVE - Left:', window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2), 'Right:', window.gamepadState.rightStickX.toFixed(2), window.gamepadState.rightStickY.toFixed(2));
+            console.log('🎮 GAMEPAD ACTIVE - Left:', window.gamepadState.leftStickX.toFixed(2), window.gamepadState.leftStickY.toFixed(2), 'Right:', window.gamepadState.rightStickX.toFixed(2), window.gamepadState.rightStickY.toFixed(2));
 
-    } else {
-        // console.log('No gamepad detected');
-        // Reset renderer clear color when no gamepad
+        } else {
+            // console.log('No gamepad detected');
+            // Reset renderer clear color when no gamepad
             // renderer.setClearColor(0x000000, 1); // Green tint when moving
-    }
+        }
     } catch (error) {
         // Silently handle gamepad errors to prevent console spam
         // console.warn('Gamepad input error:', error);
@@ -5248,9 +5248,9 @@ function updateRGBShiftWithGamepad() {
 }
 
 function render(time) {
-	if (!animationPaused) {
-		requestAnimationFrame(render);
-	}
+    if (!animationPaused) {
+        requestAnimationFrame(render);
+    }
 
     handleGamepadInput();
 
@@ -5295,195 +5295,195 @@ function render(time) {
         renderer.setClearAlpha(0.5 + window.audioLevel * 0.015);
     }
 
-	// Keyboard-held momentary effects (audio-reactive)
-	applyHeldKeyEffects();
+    // Keyboard-held momentary effects (audio-reactive)
+    applyHeldKeyEffects();
 
- 	// Apply palette toggles via hue/saturation
- 	applyPaletteToggles();
+    // Apply palette toggles via hue/saturation
+    applyPaletteToggles();
 
 
 
- 	const t = (Date.now() - startTime) % 600000.0;
+    const t = (Date.now() - startTime) % 600000.0;
 
-	if (store.state.canvasSize.width !== prevCanvasSize.width || store.state.canvasSize.height !== prevCanvasSize.height) {
-		Object.assign(prevCanvasSize, store.state.canvasSize);
-		onCanvasResize();
-	}
+    if (store.state.canvasSize.width !== prevCanvasSize.width || store.state.canvasSize.height !== prevCanvasSize.height) {
+        Object.assign(prevCanvasSize, store.state.canvasSize);
+        onCanvasResize();
+    }
 
-	if(store.state.objectsToUpdate.length == 1) {
-		controls.enabled = true;
-		mapControls.enabled = false;
-	}
+    if(store.state.objectsToUpdate.length == 1) {
+        controls.enabled = true;
+        mapControls.enabled = false;
+    }
 
     if (store.state.selectedSculpture) {
-		if (!sculptureHasBeenSelected) {
-			setInitialCameraPose()
-			transitionAllSculpturesOpacity(0.0, 1000, store.state.selectedSculpture.id);
-			transitionSculptureOpacity(store.state.selectedSculpture.id, 1.0, 1000);
-			let selectedSculpturePose = new Vector3();
+        if (!sculptureHasBeenSelected) {
+            setInitialCameraPose()
+            transitionAllSculpturesOpacity(0.0, 1000, store.state.selectedSculpture.id);
+            transitionSculptureOpacity(store.state.selectedSculpture.id, 1.0, 1000);
+            let selectedSculpturePose = new Vector3();
 
-			selectedSculpturePose.setFromMatrixPosition(store.state.selectedObject.matrixWorld);
-			cachedCameraPose = camera.position;
-			tweenCameraToSculpturePosition(selectedSculpturePose);
+            selectedSculpturePose.setFromMatrixPosition(store.state.selectedObject.matrixWorld);
+            cachedCameraPose = camera.position;
+            tweenCameraToSculpturePosition(selectedSculpturePose);
 
-			sculptureHasBeenSelected = true;
-			mapControls.enabled = false;
-			controls.enabled = true;
-			cachedSelectedSculptureId = store.state.selectedSculpture.id;
-		}
-		sculptureHasBeenDeselected = false;
-	} else {
-		if (!sculptureHasBeenDeselected && store.state.sculpturesLoaded) {
-			sculptureHasBeenDeselected = true;
-			mapControls.enabled = true;
-			controls.enabled = false;
-			setInitialCameraPose();
+            sculptureHasBeenSelected = true;
+            mapControls.enabled = false;
+            controls.enabled = true;
+            cachedSelectedSculptureId = store.state.selectedSculpture.id;
+        }
+        sculptureHasBeenDeselected = false;
+    } else {
+        if (!sculptureHasBeenDeselected && store.state.sculpturesLoaded) {
+            sculptureHasBeenDeselected = true;
+            mapControls.enabled = true;
+            controls.enabled = false;
+            setInitialCameraPose();
 
 
             // if(store.state.initialCameraPose && firstTimeAtRoute) {
-			// 	firstTimeAtRoute = false;
-			// 	let pose = store.state.initialCameraPose;
-			// 	camera.position.set(pose[0], pose[1],pose[2]);
-			// 	controls.target.set(pose[0], 0, 0);
-			// }
-			transitionAllSculpturesOpacity(1.0, 1000, cachedSelectedSculptureId);
-		} else if (sculptureHasBeenDeselected && cachedCameraPose) {
-			// camera.position.y = 2;
-			tweenObjectToValue(camera.position.y, store.state.initialCameraPose[1], (val) => camera.position.y = val);
-			cachedCameraPose = null;
-			// if(cachedSelectedSculpturePose){
-				// tweenCameraToSculpturePosition(cachedSelectedSculpturePose);
-			// }
-		}
-		sculptureHasBeenSelected = false;
-	}
+            // 	firstTimeAtRoute = false;
+            // 	let pose = store.state.initialCameraPose;
+            // 	camera.position.set(pose[0], pose[1],pose[2]);
+            // 	controls.target.set(pose[0], 0, 0);
+            // }
+            transitionAllSculpturesOpacity(1.0, 1000, cachedSelectedSculptureId);
+        } else if (sculptureHasBeenDeselected && cachedCameraPose) {
+            // camera.position.y = 2;
+            tweenObjectToValue(camera.position.y, store.state.initialCameraPose[1], (val) => camera.position.y = val);
+            cachedCameraPose = null;
+            // if(cachedSelectedSculpturePose){
+            // tweenCameraToSculpturePosition(cachedSelectedSculpturePose);
+            // }
+        }
+        sculptureHasBeenSelected = false;
+    }
 
-	let currTime = t * 0.0001;
-	store.state.objectsToUpdate.forEach(sculpture => {
-		if (!store.state.selectedSculpture && !tweeningSculpturesOpacity && store.state.sculpturesLoaded){
-			let fadeOpacity = calcSculptureOpacityForCameraDistance(sculpture);
-			sculpture.setOpacity(fadeOpacity);
-		}
+    let currTime = t * 0.0001;
+    store.state.objectsToUpdate.forEach(sculpture => {
+        if (!store.state.selectedSculpture && !tweeningSculpturesOpacity && store.state.sculpturesLoaded){
+            let fadeOpacity = calcSculptureOpacityForCameraDistance(sculpture);
+            sculpture.setOpacity(fadeOpacity);
+        }
 
         let uniforms = [];
         uniforms.push({ name: 'audioLevel', value: (window.audioLevel || 0.0), type: 'float' });
         uniforms.push({ name: 'time', value: currTime, type: 'float' });
         uniforms.push({ name: 'resolution', value: new Vector2(canvasContainer.clientWidth, canvasContainer.clientHeight), type: 'vec2' });
-		if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
-			if(sculpture && sculpture.uniforms) {
-				window.uniforms = sculpture.uniforms;
-				uniforms = uniforms.concat(sculpture.uniforms);
-			}
-		}
-		sculpture.update(uniforms);
-	});
+        if (store.state.selectedSculpture && store.state.selectedSculpture.sculpture === sculpture) {
+            if(sculpture && sculpture.uniforms) {
+                window.uniforms = sculpture.uniforms;
+                uniforms = uniforms.concat(sculpture.uniforms);
+            }
+        }
+        sculpture.update(uniforms);
+    });
 
-	const objectsToRaycast = store.state.objectsToRaycast;
-	if (objectsToRaycast.length > 0) {
-		raycaster.setFromCamera(mouse, camera);
-		const intersects = raycaster.intersectObjects(objectsToRaycast);
-		if(intersects.length > 0) {
-			const firstIntersect = intersects[0].object;
-			firstIntersect.material.side = FrontSide;
-			const frontSideIntersection = raycaster.intersectObjects(objectsToRaycast);
-			if (frontSideIntersection.length > 0) {
-				if(firstIntersect.material.uniforms) {
-					firstIntersect.material.uniforms['mouse'].value = frontSideIntersection[0].point.sub(firstIntersect.position);
-					// firstIntersect.material.uniforms['audioLevel'].value = 11.0;
-				}
-			} else {
-				if(firstIntersect.material.uniforms) {
-					// firstIntersect.material.uniforms['mouse'].value = camera.position.clone().sub(firstIntersect.position);
-				}
-			}
-			firstIntersect.material.side = BackSide;
-			if (store.state.selectedSculpture === null && store.state.clickEnabled) {
-				canvas.style.cursor = 'pointer';
-				store.state.intersectedObject = firstIntersect;
-			}
-		} else {
-			if (store.state.selectedSculpture === null) {
-				canvas.style.cursor = 'auto';
-				store.state.intersectedObject = null;
-			}
-		}
-	}
-	TWEEN.update(time);
-	// if(player) player.update();
-	// updateRemotePlayers();
-	let enableKeys = store.state.selectedSculpture ? false : true;
-	mapControls.enableKeys = true;
-	controls.enableKeys = enableKeys;
+    const objectsToRaycast = store.state.objectsToRaycast;
+    if (objectsToRaycast.length > 0) {
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(objectsToRaycast);
+        if(intersects.length > 0) {
+            const firstIntersect = intersects[0].object;
+            firstIntersect.material.side = FrontSide;
+            const frontSideIntersection = raycaster.intersectObjects(objectsToRaycast);
+            if (frontSideIntersection.length > 0) {
+                if(firstIntersect.material.uniforms) {
+                    firstIntersect.material.uniforms['mouse'].value = frontSideIntersection[0].point.sub(firstIntersect.position);
+                    // firstIntersect.material.uniforms['audioLevel'].value = 11.0;
+                }
+            } else {
+                if(firstIntersect.material.uniforms) {
+                    // firstIntersect.material.uniforms['mouse'].value = camera.position.clone().sub(firstIntersect.position);
+                }
+            }
+            firstIntersect.material.side = BackSide;
+            if (store.state.selectedSculpture === null && store.state.clickEnabled) {
+                canvas.style.cursor = 'pointer';
+                store.state.intersectedObject = firstIntersect;
+            }
+        } else {
+            if (store.state.selectedSculpture === null) {
+                canvas.style.cursor = 'auto';
+                store.state.intersectedObject = null;
+            }
+        }
+    }
+    TWEEN.update(time);
+    // if(player) player.update();
+    // updateRemotePlayers();
+    let enableKeys = store.state.selectedSculpture ? false : true;
+    mapControls.enableKeys = true;
+    controls.enableKeys = enableKeys;
     // //console.log(gamepad)
 
 
-	if(controls.enabled) {
+    if(controls.enabled) {
 
-		controls.update();
-	}
-	if(mapControls.enabled) {
-		mapControls.update();
-	}
+        controls.update();
+    }
+    if(mapControls.enabled) {
+        mapControls.update();
+    }
 
-	// Trail fading, gentle per-frame curvature, and occasional generation
-	try {
-		if (!window.generatedLines) {
-			// lazily attach group to scene
-			window.generatedLines = new Group();
-			scene.add(window.generatedLines);
-		}
-		// fade + bend existing
-		const toRemove = [];
-		const bendTime = (Date.now() - startTime) * 0.00010;
-		window.generatedLines.children.forEach(line => {
-			try {
-				// slow fade for longer persistence
-				if (line.material && typeof line.material.opacity === 'number') {
-					line.material.opacity *= 0.98; // slower fade
-					if (line.material.opacity < 0.01) toRemove.push(line);
-				}
-				// gentle curvature animation per frame
-				if (line.geometry && line.geometry.getAttribute && line.geometry.getAttribute('position')) {
-					const posAttr = line.geometry.getAttribute('position');
-					if (!line.userData) line.userData = {};
-					if (!line.userData.basePositions) {
-						// snapshot base positions once
-						line.userData.basePositions = new Float32Array(posAttr.array);
-						line.userData.phase = Math.random() * Math.PI * 2;
-						line.userData.amp = 0.25 + Math.random() * 0.35; // 0.25..0.6
-						line.userData.freq = 0.3 + Math.random() * 0.5;   // 0.3..0.8
-						line.userData.distTick = 0;
-					}
-					const base = line.userData.basePositions;
-					const phase = line.userData.phase || 0.0;
-					const amp = line.userData.amp || 0.3;
-					const freq = line.userData.freq || 0.5;
-					const tW = bendTime * freq;
-					for (let i = 0; i < posAttr.count; i++) {
-						const idx = i * 3;
-						const bx = base[idx];
-						const by = base[idx + 1];
-						const bz = base[idx + 2];
-						// layered sinusoidal offsets for smooth curvature
-						posAttr.array[idx]     = bx + Math.sin(tW + i * 0.12 + phase) * amp * 0.35;
-						posAttr.array[idx + 1] = by + Math.cos(tW * 0.9 + i * 0.15 + phase) * amp * 0.35;
-						posAttr.array[idx + 2] = bz + Math.sin(tW * 0.7 + i * 0.10 + phase) * amp * 0.20;
-					}
-					posAttr.needsUpdate = true;
-					// refresh dashed distances occasionally
-					line.userData.distTick = (line.userData.distTick || 0) + 1;
-					if (line.userData.distTick % 12 === 0 && typeof line.computeLineDistances === 'function') {
-						line.computeLineDistances();
-					}
-				}
-			} catch(e){}
-		});
-		toRemove.forEach(l => { try { window.generatedLines.remove(l); } catch(e){} });
-		// randomly seed new trails
-		if (Math.random() < 0.05) {
-			generateLinesTrail();
-		}
-	} catch(e){}
+    // Trail fading, gentle per-frame curvature, and occasional generation
+    try {
+        if (!window.generatedLines) {
+            // lazily attach group to scene
+            window.generatedLines = new Group();
+            scene.add(window.generatedLines);
+        }
+        // fade + bend existing
+        const toRemove = [];
+        const bendTime = (Date.now() - startTime) * 0.00010;
+        window.generatedLines.children.forEach(line => {
+            try {
+                // slow fade for longer persistence
+                if (line.material && typeof line.material.opacity === 'number') {
+                    line.material.opacity *= 0.98; // slower fade
+                    if (line.material.opacity < 0.01) toRemove.push(line);
+                }
+                // gentle curvature animation per frame
+                if (line.geometry && line.geometry.getAttribute && line.geometry.getAttribute('position')) {
+                    const posAttr = line.geometry.getAttribute('position');
+                    if (!line.userData) line.userData = {};
+                    if (!line.userData.basePositions) {
+                        // snapshot base positions once
+                        line.userData.basePositions = new Float32Array(posAttr.array);
+                        line.userData.phase = Math.random() * Math.PI * 2;
+                        line.userData.amp = 0.25 + Math.random() * 0.35; // 0.25..0.6
+                        line.userData.freq = 0.3 + Math.random() * 0.5;   // 0.3..0.8
+                        line.userData.distTick = 0;
+                    }
+                    const base = line.userData.basePositions;
+                    const phase = line.userData.phase || 0.0;
+                    const amp = line.userData.amp || 0.3;
+                    const freq = line.userData.freq || 0.5;
+                    const tW = bendTime * freq;
+                    for (let i = 0; i < posAttr.count; i++) {
+                        const idx = i * 3;
+                        const bx = base[idx];
+                        const by = base[idx + 1];
+                        const bz = base[idx + 2];
+                        // layered sinusoidal offsets for smooth curvature
+                        posAttr.array[idx]     = bx + Math.sin(tW + i * 0.12 + phase) * amp * 0.35;
+                        posAttr.array[idx + 1] = by + Math.cos(tW * 0.9 + i * 0.15 + phase) * amp * 0.35;
+                        posAttr.array[idx + 2] = bz + Math.sin(tW * 0.7 + i * 0.10 + phase) * amp * 0.20;
+                    }
+                    posAttr.needsUpdate = true;
+                    // refresh dashed distances occasionally
+                    line.userData.distTick = (line.userData.distTick || 0) + 1;
+                    if (line.userData.distTick % 12 === 0 && typeof line.computeLineDistances === 'function') {
+                        line.computeLineDistances();
+                    }
+                }
+            } catch(e){}
+        });
+        toRemove.forEach(l => { try { window.generatedLines.remove(l); } catch(e){} });
+        // randomly seed new trails
+        if (Math.random() < 0.05) {
+            generateLinesTrail();
+        }
+    } catch(e){}
 
     // Rotate selected sculpture on X when enabled (override)
     if (window.rotateXEnabled) {
@@ -5532,40 +5532,40 @@ function render(time) {
         updateCubes( marchingCubesEffect, marchingTime, marchingEffectController.numBlobs, marchingEffectController.floor, marchingEffectController.wallx, marchingEffectController.wallz, marchingEffectController.material );
     }
 
-	// Handle bokeh depth-of-field rendering
-	if (effectController.enabled) {
-		// Handle depth calculation if enabled
-		if (effectController.jsDepthCalculation) {
-			raycaster.setFromCamera(mouse, camera);
-			const intersects = raycaster.intersectObjects(scene.children, true);
-			const targetDistance = (intersects.length > 0) ? intersects[0].distance : 1000;
+    // Handle bokeh depth-of-field rendering
+    if (effectController.enabled) {
+        // Handle depth calculation if enabled
+        if (effectController.jsDepthCalculation) {
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            const targetDistance = (intersects.length > 0) ? intersects[0].distance : 1000;
 
-			distance += (targetDistance - distance) * 0.03;
-			const sdistance = smoothstep(camera.near, camera.far, distance);
-			const ldistance = linearize(1 - sdistance);
+            distance += (targetDistance - distance) * 0.03;
+            const sdistance = smoothstep(camera.near, camera.far, distance);
+            const ldistance = linearize(1 - sdistance);
 
-			bokehPass.uniforms['focalDepth'].value = ldistance;
-			effectController.focalDepth = ldistance;
-		}
-		renderer.clear();
+            bokehPass.uniforms['focalDepth'].value = ldistance;
+            effectController.focalDepth = ldistance;
+        }
+        renderer.clear();
 
-		// Render scene into color texture
-		renderer.setRenderTarget(rtTextureColor);
-		renderer.clear();
+        // Render scene into color texture
+        renderer.setRenderTarget(rtTextureColor);
+        renderer.clear();
 
         // fps limit?
         // setTimeout( function() {
         //     requestAnimationFrame( animate );
         // }, 1000 / 30 );
 
-		renderer.render(scene, camera);
+        renderer.render(scene, camera);
 
-		// Render depth into texture
-		scene.overrideMaterial = materialDepth;
-		renderer.setRenderTarget(rtTextureDepth);
-		renderer.clear();
-		renderer.render(scene, camera);
-		scene.overrideMaterial = null;
+        // Render depth into texture
+        scene.overrideMaterial = materialDepth;
+        renderer.setRenderTarget(rtTextureDepth);
+        renderer.clear();
+        renderer.render(scene, camera);
+        scene.overrideMaterial = null;
 
 
         // Render the scene to the render target
@@ -5577,11 +5577,11 @@ function render(time) {
         // renderer.setRenderTarget(null);
 
         // Apply post-processing with bokeh
-		composer.render();
-	} else {
-		// Normal rendering without bokeh
-		composer.render();
-	}
+        composer.render();
+    } else {
+        // Normal rendering without bokeh
+        composer.render();
+    }
 
 }
 
@@ -5705,7 +5705,7 @@ function setupMarchingGui() {
 
 function piCreateMediaRecorder(isRecordingCallback, canvas)
 {
-	/*
+    /*
     if (piCanMediaRecorded(canvas) == false)
     {
         return null;
@@ -5713,13 +5713,13 @@ function piCreateMediaRecorder(isRecordingCallback, canvas)
     */
 
     let options = {
-		videoBitsPerSecond: 2500000,
-		mimeType: 'video/webm;'
+        videoBitsPerSecond: 2500000,
+        mimeType: 'video/webm;'
     };
-	if (typeof MediaRecorder === 'undefined' || !navigator.getUserMedia) {
-		console.error('recorder unsupported');
-		return
-	}
+    if (typeof MediaRecorder === 'undefined' || !navigator.getUserMedia) {
+        console.error('recorder unsupported');
+        return
+    }
     var mediaRecorder = new MediaRecorder(canvas.captureStream(), options);
     // //console.log("videoBitsPerSecond: ", mediaRecorder.videoBitsPerSecond);
     var chunks = [];
@@ -5734,265 +5734,265 @@ function piCreateMediaRecorder(isRecordingCallback, canvas)
         isRecordingCallback( true );
     };
 
-	mediaRecorder.onstop = (download) => {
-		isRecordingCallback(false);
-		let blob = new Blob(chunks, options);
+    mediaRecorder.onstop = (download) => {
+        isRecordingCallback(false);
+        let blob = new Blob(chunks, options);
 
-		chunks = [];
-		if (download) {
-			let videoURL = window.URL.createObjectURL(blob);
-			let url = window.URL.createObjectURL(blob);
-			let a = document.createElement("a");
-			document.body.appendChild(a);
-			a.style = "display: none";
-			a.href = url;
-			a.download = "capture.webm";
-			a.click();
-			window.URL.revokeObjectURL(url);
-		}
-		return blob;
-	};
+        chunks = [];
+        if (download) {
+            let videoURL = window.URL.createObjectURL(blob);
+            let url = window.URL.createObjectURL(blob);
+            let a = document.createElement("a");
+            document.body.appendChild(a);
+            a.style = "display: none";
+            a.href = url;
+            a.download = "capture.webm";
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+        return blob;
+    };
 
     return mediaRecorder;
 }
 
 function captureCanvasImage(callback, download) {
-	return canvas.toBlob((blob) => {
-		if(download) {
-			let url = window.URL.createObjectURL(blob);
-			let a = document.createElement("a");
-			document.body.appendChild(a);
-			a.style = "display: none";
-			a.href = url;
-			a.download = "capture.png";
-			a.click();
-			window.URL.revokeObjectURL(url);
-		}
-		callback(blob);
-	}, 'image/png', 1.0);
+    return canvas.toBlob((blob) => {
+        if(download) {
+            let url = window.URL.createObjectURL(blob);
+            let a = document.createElement("a");
+            document.body.appendChild(a);
+            a.style = "display: none";
+            a.href = url;
+            a.download = "capture.png";
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+        callback(blob);
+    }, 'image/png', 1.0);
 }
 
 function toggleScreenCapture(download) {
-	if (!isCapturing) {
-		mediaCap.start();
-		isCapturing = true;
-	} else {
-		isCapturing = false;
-		return mediaCap.stop(download);
-	}
+    if (!isCapturing) {
+        mediaCap.start();
+        isCapturing = true;
+    } else {
+        isCapturing = false;
+        return mediaCap.stop(download);
+    }
 }
 
 function keyPress(down, e) {
     //console.log("Key event:", event.key, "isTrusted:", event.isTrusted);
 
     if (e.target.nodeName === 'BODY') {
-		// player.keyEvent(down, e);
-	}
-	if (e.altKey && down) {
-		if (e.key === 'r' || e.key === '®') {
-			toggleScreenCapture(true);
-		}
-	}
+        // player.keyEvent(down, e);
+    }
+    if (e.altKey && down) {
+        if (e.key === 'r' || e.key === '®') {
+            toggleScreenCapture(true);
+        }
+    }
 
 }
 
 // Raycast to sculptures
 function onMouseMove(event) {
-	// Normalize to renderer canvas for raycaster.setFromCamera(mouse, camera)
-	if (renderer && renderer.domElement) {
-		const rect = renderer.domElement.getBoundingClientRect();
-		mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-		mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-	}
+    // Normalize to renderer canvas for raycaster.setFromCamera(mouse, camera)
+    if (renderer && renderer.domElement) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    }
 }
 
 // Handle mouse interaction for bokeh focus
 function onPointerMove(event) {
-	if (event.isPrimary === false || !bokehPass) return;
+    if (event.isPrimary === false || !bokehPass) return;
 
-	const rect = canvas.getBoundingClientRect();
-	const x = event.clientX - rect.left;
-	const y = event.clientY - rect.top;
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
 
-	if (bokehPass.uniforms['focusCoords']) {
-		bokehPass.uniforms['focusCoords'].value.set(x / canvasContainer.clientWidth, 1 - (y / canvasContainer.clientHeight));
-	}
+    if (bokehPass.uniforms['focusCoords']) {
+        bokehPass.uniforms['focusCoords'].value.set(x / canvasContainer.clientWidth, 1 - (y / canvasContainer.clientHeight));
+    }
 }
 
 // Utility functions for depth calculation
 function linearize(depth) {
-	const zfar = camera.far;
-	const znear = camera.near;
-	return -zfar * znear / (depth * (zfar - znear) - zfar);
+    const zfar = camera.far;
+    const znear = camera.near;
+    return -zfar * znear / (depth * (zfar - znear) - zfar);
 }
 
 function smoothstep(near, far, depth) {
-	const x = saturate((depth - near) / (far - near));
-	return x * x * (3 - 2 * x);
+    const x = saturate((depth - near) / (far - near));
+    return x * x * (3 - 2 * x);
 }
 
 function saturate(x) {
-	return Math.max(0, Math.min(1, x));
+    return Math.max(0, Math.min(1, x));
 }
 
 let tempIntersectedObject;
 let mouseDownTime = 0;
 function onMouseDown(event) {
 
-	if(store.state.intersectedObject) {
-		// tempIntersectedObject = store.state.intersectedObject;
-		mouseDownTime = Date.now();
-	} else {
-		// store.state.selectedObject = null;
-	}
+    if(store.state.intersectedObject) {
+        // tempIntersectedObject = store.state.intersectedObject;
+        mouseDownTime = Date.now();
+    } else {
+        // store.state.selectedObject = null;
+    }
 }
 
 function onMouseUp(event) {
-	if (store.state.selectedObject || !store.state.clickEnabled) return;
-	if (store.state.intersectedObject && store.state.intersectedObject === tempIntersectedObject) {
-		mouseDownTime = Date.now() - mouseDownTime;
-		if(mouseDownTime < 400) {
-			if(router.currentRoute.name === 'examples' || router.currentRoute.name === 'gallery' ) {
-				store.state.selectedObject = store.state.intersectedObject;
-				selectedSculptureOpacity.opacity = 1.0;
-				canvas.style.cursor = 'auto';
-			}
+    if (store.state.selectedObject || !store.state.clickEnabled) return;
+    if (store.state.intersectedObject && store.state.intersectedObject === tempIntersectedObject) {
+        mouseDownTime = Date.now() - mouseDownTime;
+        if(mouseDownTime < 400) {
+            if(router.currentRoute.name === 'examples' || router.currentRoute.name === 'gallery' ) {
+                store.state.selectedObject = store.state.intersectedObject;
+                selectedSculptureOpacity.opacity = 1.0;
+                canvas.style.cursor = 'auto';
+            }
 
 
-		}
-	} else {
-		store.state.selectedObject = null;
-	}
-	tempIntersectedObject = null;
+        }
+    } else {
+        store.state.selectedObject = null;
+    }
+    tempIntersectedObject = null;
 }
 
 function tweenCameraToSculpturePosition(endTargetPos, duration=1000) {
-	let camTarget;
-	if (controls.enabled) {
-		camTarget = new Vector3().copy(controls.target);
-		mapControls.target = new Vector3().copy(controls.target);
-	} else {
-		camTarget = new Vector3().copy(mapControls.target);
-		controls.target = new Vector3().copy(mapControls.target);
-	}
-	let tweenControlsTarget = new TWEEN.Tween(camTarget)
-		.to(endTargetPos, duration)
-		.easing(TWEEN.Easing.Quadratic.InOut)
-		.onUpdate(function () {
-			controls.target.set(camTarget.x, camTarget.y, camTarget.z);
-			mapControls.target.set(camTarget.x, camTarget.y, camTarget.z);
-		});
-	let camPos = new Vector3().copy(camera.position);
-	let endCamPos = new Vector3().copy(endTargetPos);
-	endCamPos.z += 2;
-	let tweenCamera = new TWEEN.Tween(camPos)
-		.to(endCamPos, duration)
-		.easing(TWEEN.Easing.Quadratic.InOut)
-		.onUpdate(function () {
-			camera.position.set(camPos.x, camPos.y, camPos.z);
-		});
-	tweenCamera.start();
-	tweenControlsTarget.start();
+    let camTarget;
+    if (controls.enabled) {
+        camTarget = new Vector3().copy(controls.target);
+        mapControls.target = new Vector3().copy(controls.target);
+    } else {
+        camTarget = new Vector3().copy(mapControls.target);
+        controls.target = new Vector3().copy(mapControls.target);
+    }
+    let tweenControlsTarget = new TWEEN.Tween(camTarget)
+        .to(endTargetPos, duration)
+        .easing(TWEEN.Easing.Quadratic.InOut)
+        .onUpdate(function () {
+            controls.target.set(camTarget.x, camTarget.y, camTarget.z);
+            mapControls.target.set(camTarget.x, camTarget.y, camTarget.z);
+        });
+    let camPos = new Vector3().copy(camera.position);
+    let endCamPos = new Vector3().copy(endTargetPos);
+    endCamPos.z += 2;
+    let tweenCamera = new TWEEN.Tween(camPos)
+        .to(endCamPos, duration)
+        .easing(TWEEN.Easing.Quadratic.InOut)
+        .onUpdate(function () {
+            camera.position.set(camPos.x, camPos.y, camPos.z);
+        });
+    tweenCamera.start();
+    tweenControlsTarget.start();
 }
 
 function transitionSculptureOpacity(sculptureId, opacity, duration = 2000) {
-	tweeningSculpturesOpacity = true;
-	return new Promise(function(resolve, reject) {
-		let sculp = store.state.objectsToUpdate.filter(obj => obj.mesh.name === sculptureId);
-		if(sculp.length == 0) {
-			reject();
-		} else {
-			sculp = sculp[0];
-		}
-		let fadeSculpture = new TWEEN.Tween(selectedSculptureOpacity)
-			.to({opacity}, duration)
-			.easing(TWEEN.Easing.Quadratic.InOut)
-			.onUpdate(function() {
-				sculp.setOpacity(selectedSculptureOpacity.opacity);
-			})
-			.onComplete(function() {
-				tweeningSculpturesOpacity = false;
-				resolve();
-			});
-		fadeSculpture.start();
-	});
+    tweeningSculpturesOpacity = true;
+    return new Promise(function(resolve, reject) {
+        let sculp = store.state.objectsToUpdate.filter(obj => obj.mesh.name === sculptureId);
+        if(sculp.length == 0) {
+            reject();
+        } else {
+            sculp = sculp[0];
+        }
+        let fadeSculpture = new TWEEN.Tween(selectedSculptureOpacity)
+            .to({opacity}, duration)
+            .easing(TWEEN.Easing.Quadratic.InOut)
+            .onUpdate(function() {
+                sculp.setOpacity(selectedSculptureOpacity.opacity);
+            })
+            .onComplete(function() {
+                tweeningSculpturesOpacity = false;
+                resolve();
+            });
+        fadeSculpture.start();
+    });
 }
 
 function tweenObjectToValue(obj, endValue, updateCallback, time = 2000) {
-	return new Promise(function (resolve, reject) {
-		let currState = { state: obj };
-		let tween = new TWEEN.Tween(currState)
-			.to({ 'state': endValue }, time)
-			.easing(TWEEN.Easing.Quadratic.InOut)
-			.onUpdate(() => {
-				updateCallback(currState.state);
-			})
-			.onComplete(() => resolve());
-		tween.start();
-	});
+    return new Promise(function (resolve, reject) {
+        let currState = { state: obj };
+        let tween = new TWEEN.Tween(currState)
+            .to({ 'state': endValue }, time)
+            .easing(TWEEN.Easing.Quadratic.InOut)
+            .onUpdate(() => {
+                updateCallback(currState.state);
+            })
+            .onComplete(() => resolve());
+        tween.start();
+    });
 }
 
 function transitionAllSculpturesOpacity(opacity, duration = 4000, excludedSculptureId = null) {
-	tweeningSculpturesOpacity = true;
+    tweeningSculpturesOpacity = true;
 
-	let objectsToFade = store.state.objectsToUpdate.filter(obj => calcSculptureOpacityForCameraDistance(obj) > 0);
-	return new Promise(function(resolve, reject) {
-		let fadeSculptures = new TWEEN.Tween(allSculpturesOpacity)
-			.to({ opacity }, duration)
-			.easing(TWEEN.Easing.Quadratic.InOut)
-			.onUpdate(function () {
-				objectsToFade.forEach(obj => {
-					let fadeOpacity = calcSculptureOpacityForCameraDistance(obj);
-					if(!(obj.opacity == 0 && opacity == 0)) {
-						if (!excludedSculptureId && fadeOpacity) {
-							obj.setOpacity(Math.min(allSculpturesOpacity.opacity, fadeOpacity));
-						} else if (obj.mesh.name !== excludedSculptureId) {
-							obj.setOpacity(Math.min(allSculpturesOpacity.opacity, fadeOpacity));
-						}
-					}
-				});
-			})
-			.onComplete(function () {
-				tweeningSculpturesOpacity = false;
-				resolve();
+    let objectsToFade = store.state.objectsToUpdate.filter(obj => calcSculptureOpacityForCameraDistance(obj) > 0);
+    return new Promise(function(resolve, reject) {
+        let fadeSculptures = new TWEEN.Tween(allSculpturesOpacity)
+            .to({ opacity }, duration)
+            .easing(TWEEN.Easing.Quadratic.InOut)
+            .onUpdate(function () {
+                objectsToFade.forEach(obj => {
+                    let fadeOpacity = calcSculptureOpacityForCameraDistance(obj);
+                    if(!(obj.opacity == 0 && opacity == 0)) {
+                        if (!excludedSculptureId && fadeOpacity) {
+                            obj.setOpacity(Math.min(allSculpturesOpacity.opacity, fadeOpacity));
+                        } else if (obj.mesh.name !== excludedSculptureId) {
+                            obj.setOpacity(Math.min(allSculpturesOpacity.opacity, fadeOpacity));
+                        }
+                    }
+                });
+            })
+            .onComplete(function () {
+                tweeningSculpturesOpacity = false;
+                resolve();
 
-			});
-		fadeSculptures.start();
-	});
+            });
+        fadeSculptures.start();
+    });
 }
 
 function calcSculptureOpacityForCameraDistance(sculp) {
-  let dist = sculp.mesh.position.distanceTo(camera.position);
-  return Math.min(Math.max(0.0, window.fogDistance - dist * 0.5), 1.0);
+    let dist = sculp.mesh.position.distanceTo(camera.position);
+    return Math.min(Math.max(0.0, window.fogDistance - dist * 0.5), 1.0);
 }
 
 function onCanvasResize() {
-	if (canvasContainer) {
-		const width = canvasContainer.clientWidth;
-		const height = canvasContainer.clientHeight;
+    if (canvasContainer) {
+        const width = canvasContainer.clientWidth;
+        const height = canvasContainer.clientHeight;
 
-		camera.aspect = width / height;
-		camera.updateProjectionMatrix();
-		renderer.setSize(width, height);
-		composer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+        composer.setSize(width, height);
 
-		// Update bokeh render targets
-		if (rtTextureDepth) rtTextureDepth.setSize(width, height);
-		if (rtTextureColor) rtTextureColor.setSize(width, height);
+        // Update bokeh render targets
+        if (rtTextureDepth) rtTextureDepth.setSize(width, height);
+        if (rtTextureColor) rtTextureColor.setSize(width, height);
 
-		// Update bokeh uniforms
-		if (bokehPass) {
-			bokehPass.uniforms['textureWidth'].value = width;
-			bokehPass.uniforms['textureHeight'].value = height;
-		}
+        // Update bokeh uniforms
+        if (bokehPass) {
+            bokehPass.uniforms['textureWidth'].value = width;
+            bokehPass.uniforms['textureHeight'].value = height;
+        }
 
-		// Update blur pass uniforms
-		if (blurPass) {
-			blurPass.uniforms.resolution.value.set(width, height);
-		}
+        // Update blur pass uniforms
+        if (blurPass) {
+            blurPass.uniforms.resolution.value.set(width, height);
+        }
 
-		windowHalfX = width / 2;
-		windowHalfY = height / 2;
-	}
+        windowHalfX = width / 2;
+        windowHalfY = height / 2;
+    }
 }
 window.onCanvasResize = onCanvasResize;
