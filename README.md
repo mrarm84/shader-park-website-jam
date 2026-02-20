@@ -1,3 +1,8 @@
+Added: gamepad, effects on each DS4 gamepad key, keyboard effects; Passes with effects cumulates; there are other objects in some branches; etc; 
+
+generally, fun and mess ;)
+
+
 # Shader Park
 
 [![Netlify Status](https://api.netlify.com/api/v1/badges/62b5ba66-28fd-4829-9394-b175ad113a6b/deploy-status)](https://app.netlify.com/sites/shaderpark/deploys)
